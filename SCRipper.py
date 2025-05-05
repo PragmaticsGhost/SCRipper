@@ -2,6 +2,7 @@
 import sys
 import subprocess
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # —— Bootstrap Python dependencies ——
@@ -66,14 +67,30 @@ YDL_OPTS = {
     "writethumbnail":   True,
     "ffmpeg_location":  FFMPEG_BIN,
     "cookiesfrombrowser": ("chrome",),
-    "retries":          5,                                # retry HTTP errors up to 5× :
-    "retry_sleep":      ["http:30", "extractor:30"],      # sleep 30s on HTTP & extractor retries
-    "sleep_requests":   5,                                # pause 5s between each HTTP request - not sure how this is different from line 70, but whatevs
+    # let our code handle retries
+    "retries":          0,
+    "sleep_requests":   5,
 }
 
 def download_soundcloud_track(url):
-    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-        info = ydl.extract_info(url, download=True)
+    backoff = 30           # initial wait on rate-limit
+    max_backoff = 600      # cap at 10 minutes
+    while True:
+        try:
+            with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+                info = ydl.extract_info(url, download=True)
+            break   # success!
+        except Exception as e:
+            msg = str(e)
+            if "HTTP Error 429" in msg or "Too Many Requests" in msg or "rate limit" in msg.lower():
+                print(f"↺ Rate limited on {url}. Sleeping for {backoff}s before retrying…")
+                time.sleep(backoff)
+                # exponential back‐off
+                backoff = min(backoff * 2, max_backoff)
+                continue
+            # non‐rate-limit error: let caller handle it
+            raise
+
     title  = info.get("title","Unknown")
     artist = info.get("uploader","Unknown")
     art    = info.get("thumbnails",[{}])[-1].get("url")
@@ -105,7 +122,9 @@ def embed_metadata(mp3_file, title, artist, art_url):
         try:
             r = session.get(art_url, timeout=10); r.raise_for_status()
             mime = r.headers.get("Content-Type","image/jpeg")
-            audio.tags["APIC"] = APIC(encoding=3, mime=mime, type=3, desc="Cover", data=r.content)
+            audio.tags["APIC"] = APIC(
+                encoding=3, mime=mime, type=3, desc="Cover", data=r.content
+            )
         except:
             failed_downloads.append(f"embed_art:{title}")
     audio.save(v2_version=3)
@@ -115,7 +134,7 @@ def process_track(url):
         inp, out, title, artist, art = download_soundcloud_track(url)
         convert_to_mp3(inp, out)
         embed_metadata(out, title, artist, art)
-    except:
+    except Exception:
         failed_downloads.append(url)
 
 def clean_non_mp3():
@@ -134,7 +153,7 @@ if __name__ == "__main__":
         urls = [url]
 
     print(f"Found {len(urls)} track{'s' if len(urls)!=1 else ''}. Processing…")
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=10) as ex:
         futures = [ex.submit(process_track, u) for u in urls]
         for _ in tqdm(as_completed(futures), total=len(futures), desc="Tracks", unit="track"):
             pass

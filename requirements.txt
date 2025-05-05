@@ -2,7 +2,5 @@ yt-dlp
 ffmpeg-python
 mutagen
 requests
-pathlib
-pydub
 psutil
-
+tqdm
