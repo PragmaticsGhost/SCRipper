@@ -3,6 +3,8 @@ import sys
 import subprocess
 import os
 import time
+import logging
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # —— Bootstrap Python dependencies ——
@@ -17,15 +19,24 @@ def ensure_package(pkg_name, import_name=None):
 
 for pkg, imp in [
     ("imageio-ffmpeg", "imageio_ffmpeg"),
-    ("yt-dlp",       "yt_dlp"),
-    ("ffmpeg-python","ffmpeg"),
-    ("mutagen",      "mutagen"),
-    ("tqdm",         "tqdm"),
-    ("requests",     "requests"),
-    ("psutil",       "psutil"),
+    ("yt-dlp",         "yt_dlp"),
+    ("ffmpeg-python",  "ffmpeg"),
+    ("mutagen",        "mutagen"),
+    ("tqdm",           "tqdm"),
+    ("requests",       "requests"),
+    ("psutil",         "psutil"),
+    ("browser_cookie3","browser_cookie3"),
+    ("filelock",       "filelock"),
 ]:
     ensure_package(pkg, imp)
 
+# —— Logging setup ——
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+import browser_cookie3
+import filelock
+from http.cookiejar import MozillaCookieJar
 import yt_dlp
 import ffmpeg
 import requests
@@ -35,120 +46,130 @@ from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
 from mutagen.mp3 import MP3
 from imageio_ffmpeg import get_ffmpeg_exe
 
-# —— Kill Chrome/Chromium for cookies ——
-def kill_chrome_if_running():
-    print("Search and Destroy Initiated for all Chrome instances (required for yt-dlp to read cookies)")
-    killed = False
-    for proc in psutil.process_iter(("name","cmdline")):
-        name = (proc.info["name"] or "").lower()
-        cmd  = " ".join(proc.info.get("cmdline") or []).lower()
-        if "chrome" in name or "chromium" in name or "chrome" in cmd or "chromium" in cmd:
-            try:
-                proc.kill()
-                killed = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-    print("→ Chrome/Chromium instances eradicated." if killed else "→ No Chrome/Chromium found.")
-
 # —— FFmpeg setup ——
-FFMPEG_BIN = get_ffmpeg_exe()
-if not os.path.isfile(FFMPEG_BIN):
-    raise RuntimeError(f"FFmpeg not found at {FFMPEG_BIN}")
+FFMPEG_EXE = get_ffmpeg_exe()
+if not os.path.isfile(FFMPEG_EXE):
+    raise RuntimeError(f"FFmpeg not found at {FFMPEG_EXE}")
 
 session = requests.Session()
 OUTPUT_DIR = "downloads"
+COOKIE_FILE = os.path.join(OUTPUT_DIR, "soundcloud_cookies.txt")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 failed_downloads = []
 
+# —— Dump just soundcloud.com cookies ——
+def dump_soundcloud_cookies(path):
+    logger.debug(f"Dumping SoundCloud cookies to {path}")
+    cj = MozillaCookieJar(path)
+    for ck in browser_cookie3.chrome(domain_name="soundcloud.com"):
+        cj.set_cookie(ck)
+    cj.save(ignore_discard=True, ignore_expires=True)
+    return path
+
+dump_soundcloud_cookies(COOKIE_FILE)
+
 # —— yt-dlp options ——
 YDL_OPTS = {
-    "format":           "bestaudio/best",
-    "outtmpl":          f"{OUTPUT_DIR}/%(title)s.%(ext)s",
-    "writethumbnail":   True,
-    "ffmpeg_location":  FFMPEG_BIN,
-    "cookiesfrombrowser": ("chrome",),
-    # let our code handle retries
-    "retries":          0,
-    "sleep_requests":   5,
+    "format":          "bestaudio/best",
+    "outtmpl":         f"{OUTPUT_DIR}/%(title)s.%(ext)s",
+    "writethumbnail":  True,
+    "ffmpeg_location": FFMPEG_EXE,
+    "cookiefile":      COOKIE_FILE,
+    "retries":         0,
+    "sleep_requests":  5,
+    "fixup":           "never",         # disable auto-fixup that invokes ffprobe
+    "postprocessors":  [],               # disable yt-dlp postprocessing
+    "verbose":         True,
+    "logger":          logger,
 }
 
 def download_soundcloud_track(url):
-    backoff = 30           # initial wait on rate-limit
-    max_backoff = 600      # cap at 10 minutes
+    logger.info(f"Starting download for: {url}")
+    backoff, max_backoff = 30, 600
     while True:
         try:
             with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
                 info = ydl.extract_info(url, download=True)
-            break   # success!
+            logger.debug(f"Extracted info: title={info.get('title')} ext={info.get('ext')}")
+            break
         except Exception as e:
+            logger.error(f"Error during extract_info for {url}: {e}")
+            traceback.print_exc()
             msg = str(e)
-            if "HTTP Error 429" in msg or "Too Many Requests" in msg or "rate limit" in msg.lower():
-                print(f"↺ Rate limited on {url}. Sleeping for {backoff}s before retrying…")
+            if any(term in msg for term in ("HTTP Error 429", "Too Many Requests", "rate limit")):
+                logger.warning(f"Rate limited on {url}, sleeping {backoff}s…")
                 time.sleep(backoff)
-                # exponential back‐off
-                backoff = min(backoff * 2, max_backoff)
+                backoff = min(backoff*2, max_backoff)
                 continue
-            # non‐rate-limit error: let caller handle it
             raise
-
-    title  = info.get("title","Unknown")
-    artist = info.get("uploader","Unknown")
-    art    = info.get("thumbnails",[{}])[-1].get("url")
-    ext    = info.get("ext","m4a")
-    return (
-        os.path.join(OUTPUT_DIR, f"{title}.{ext}"),
-        os.path.join(OUTPUT_DIR, f"{title}.mp3"),
-        title, artist, art
-    )
+    title = info.get("title", "Unknown")
+    artist = info.get("uploader", "Unknown")
+    art = info.get("thumbnails", [{}])[-1].get("url")
+    ext = info.get("ext", "m4a")
+    inp = os.path.join(OUTPUT_DIR, f"{title}.{ext}")
+    out = os.path.join(OUTPUT_DIR, f"{title}.mp3")
+    return inp, out, title, artist, art
 
 def convert_to_mp3(inp, out):
-    (
-        ffmpeg
-        .input(inp)
-        .output(out, audio_bitrate="320k", format="mp3", threads=5, loglevel="quiet")
-        .run(overwrite_output=True, cmd=FFMPEG_BIN)
-    )
-    os.remove(inp)
+    logger.info(f"Converting {inp} to mp3 -> {out}")
+    try:
+        (
+            ffmpeg
+            .input(inp)
+            .output(out, audio_bitrate="320k", format="mp3", threads=5, loglevel="quiet")
+            .run(overwrite_output=True, cmd=FFMPEG_EXE)
+        )
+        os.remove(inp)
+    except Exception as e:
+        logger.error(f"Error converting {inp}: {e}")
+        traceback.print_exc()
+        raise
 
 def embed_metadata(mp3_file, title, artist, art_url):
+    logger.info(f"Embedding metadata for {title}")
     try:
-        audio = MP3(mp3_file, ID3=ID3)
-    except ID3NoHeaderError:
-        audio = MP3(mp3_file); audio.add_tags()
-    audio.tags["TIT2"] = TIT2(encoding=3, text=title)
-    audio.tags["TPE1"] = TPE1(encoding=3, text=artist)
-    audio.tags["TALB"] = TALB(encoding=3, text="SoundCloud")
-    if art_url:
         try:
-            r = session.get(art_url, timeout=10); r.raise_for_status()
-            mime = r.headers.get("Content-Type","image/jpeg")
-            audio.tags["APIC"] = APIC(
-                encoding=3, mime=mime, type=3, desc="Cover", data=r.content
-            )
-        except:
-            failed_downloads.append(f"embed_art:{title}")
-    audio.save(v2_version=3)
+            audio = MP3(mp3_file, ID3=ID3)
+        except ID3NoHeaderError:
+            audio = MP3(mp3_file)
+            audio.add_tags()
+        audio.tags["TIT2"] = TIT2(encoding=3, text=title)
+        audio.tags["TPE1"] = TPE1(encoding=3, text=artist)
+        audio.tags["TALB"] = TALB(encoding=3, text="SoundCloud")
+        if art_url:
+            r = session.get(art_url, timeout=10)
+            r.raise_for_status()
+            mime = r.headers.get("Content-Type", "image/jpeg")
+            audio.tags["APIC"] = APIC(encoding=3, mime=mime, type=3, desc="Cover", data=r.content)
+        audio.save(v2_version=3)
+    except Exception as e:
+        logger.error(f"Error embedding metadata/art for {title}: {e}")
+        traceback.print_exc()
+        failed_downloads.append(f"embed_meta:{title}")
 
 def process_track(url):
+    logger.info(f"Processing track: {url}")
     try:
         inp, out, title, artist, art = download_soundcloud_track(url)
         convert_to_mp3(inp, out)
         embed_metadata(out, title, artist, art)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Unexpected error processing {url}: {e}")
+        traceback.print_exc()
         failed_downloads.append(url)
 
 def clean_non_mp3():
+    logger.info("Cleaning up non-mp3 files…")
     for f in os.listdir(OUTPUT_DIR):
         if not f.lower().endswith(".mp3"):
             os.remove(os.path.join(OUTPUT_DIR, f))
 
 if __name__ == "__main__":
-    kill_chrome_if_running()
     url = input("Enter SoundCloud URL (track or playlist): ")
     if "/sets/" in url:
-        with yt_dlp.YoutubeDL({"quiet":True,"extract_flat":True}) as ydl:
+        with yt_dlp.YoutubeDL({"quiet":True, "extract_flat":True}) as ydl:
             info = ydl.extract_info(url, download=False)
-        urls = [e["url"] for e in info.get("entries",[])]
+        urls = [e["url"] for e in info.get("entries", [])]
     else:
         urls = [url]
 
