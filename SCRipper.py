@@ -52,7 +52,7 @@ if not os.path.isfile(FFMPEG_EXE):
     raise RuntimeError(f"FFmpeg not found at {FFMPEG_EXE}")
 
 session = requests.Session()
-OUTPUT_DIR = "downloads"
+OUTPUT_DIR = "downloads2"
 COOKIE_FILE = os.path.join(OUTPUT_DIR, "soundcloud_cookies.txt")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 failed_downloads = []
@@ -165,15 +165,18 @@ def clean_non_mp3():
             os.remove(os.path.join(OUTPUT_DIR, f))
 
 if __name__ == "__main__":
-    url = input("Enter SoundCloud URL (track or playlist): ")
-    if "/sets/" in url:
-        with yt_dlp.YoutubeDL({"quiet":True, "extract_flat":True}) as ydl:
-            info = ydl.extract_info(url, download=False)
-        urls = [e["url"] for e in info.get("entries", [])]
-    else:
-        urls = [url]
+    url_input = input("Enter SoundCloud URL(s) (single or playlist, separate multiple with commas): ")
+    urls = []
 
-    print(f"Found {len(urls)} track{'s' if len(urls)!=1 else ''}. Processing…")
+    for url in [u.strip() for u in url_input.split(",") if u.strip()]:
+        if "/sets/" in url:
+            with yt_dlp.YoutubeDL({"quiet": True, "extract_flat": True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+            urls.extend([e["url"] for e in info.get("entries", [])])
+        else:
+            urls.append(url)
+
+    print(f"Found {len(urls)} track{'s' if len(urls) != 1 else ''}. Processing…")
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = [ex.submit(process_track, u) for u in urls]
         for _ in tqdm(as_completed(futures), total=len(futures), desc="Tracks", unit="track"):
