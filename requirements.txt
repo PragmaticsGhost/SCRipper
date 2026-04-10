@@ -4,3 +4,4 @@ mutagen
 requests
 psutil
 tqdm
+discord
