@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCRipper</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141824;
+    --panel-2: #1a2030;
+    --border: #262e42;
+    --text: #e6e9f2;
+    --muted: #8b93a7;
+    --accent: #6d5dfc;
+    --accent-2: #46c8ff;
+    --up: #46c8ff;
+    --down: #ffa14a;
+    --ok: #4ade80;
+    --err: #f87171;
+    --warn: #fbbf24;
+    font-size: 15px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 80% -10%, #1b1440 0%, var(--bg) 55%);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+  header { max-width: 1100px; margin: 0 auto 20px; display: flex; align-items: baseline; gap: 14px; }
+  header h1 {
+    font-size: 1.7rem; letter-spacing: 0.04em;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header span { color: var(--muted); font-size: .85rem; }
+  .tabs { max-width: 1100px; margin: 0 auto 22px; display: flex; gap: 8px; border-bottom: 1px solid var(--border); }
+  .tab {
+    background: none; border: none; color: var(--muted); font: inherit; font-size: .95rem;
+    padding: 10px 22px; cursor: pointer; border-bottom: 2px solid transparent;
+    letter-spacing: .04em;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent-2); }
+  main { max-width: 1100px; margin: 0 auto; position: relative; z-index: 45; }
+  .tab-page { display: none; }
+  .tab-page.active { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .tab-page.single { grid-template-columns: 1fr; }
+  @media (max-width: 900px) { .tab-page.active { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px; display: flex; flex-direction: column; gap: 14px;
+    align-self: start;
+  }
+  .card h2 { font-size: 1.02rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .hint { font-size: .8rem; color: var(--muted); line-height: 1.5; }
+  textarea {
+    width: 100%; min-height: 90px; resize: vertical;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px;
+    font: inherit; font-size: .88rem;
+  }
+  textarea:focus, input:focus, select:focus { outline: 1px solid var(--accent); }
+  select, input[type=text], input[type=number] {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: .88rem;
+  }
+  button {
+    font: inherit; font-size: .85rem; color: #fff; cursor: pointer;
+    background: linear-gradient(90deg, var(--accent), #8a5dfc);
+    border: none; border-radius: 8px; padding: 8px 16px;
+    transition: filter .15s;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { filter: grayscale(.8) brightness(.7); cursor: default; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button.ghost:hover { color: var(--text); border-color: var(--muted); }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 12px; font-size: .88rem;
+  }
+  .row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+  .listing { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+  .badge {
+    font-size: .72rem; padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .badge.ok { color: var(--ok); border-color: #234a33; }
+  .badge.warn { color: var(--warn); border-color: #5a4a1c; }
+  .drop {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 34px 18px; text-align: center; color: var(--muted);
+    transition: border-color .15s, background .15s; cursor: pointer;
+  }
+  .drop.over { border-color: var(--accent-2); background: rgba(70,200,255,.06); }
+  .drop strong { color: var(--text); }
+  .progress-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .progress-bar { height: 8px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
+  .progress-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width .4s ease; border-radius: 6px;
+  }
+  .progress-fill.indeterminate { width: 30%; animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% {margin-left:0} 50% {margin-left:70%} 100% {margin-left:0} }
+  .progress-label { font-size: .8rem; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; }
+  .progress-label span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tracklist { display: flex; flex-direction: column; gap: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: .88rem; }
+  .tl-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 12px; border-radius: 8px; background: var(--panel-2);
+  }
+  .tl-row .ts { color: var(--accent-2); min-width: 58px; }
+  .tl-row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-row.unknown { border: 1px dashed #4a3a1c; background: rgba(251,191,36,.05); }
+  .tl-row.unknown .title { color: var(--warn); font-style: italic; }
+  .tl-row.unknown .ts { color: var(--warn); }
+  .tempo { font-size: .75rem; padding: 1px 8px; border-radius: 20px; white-space: nowrap; }
+  .tempo.up { color: var(--up); border: 1px solid #1c4a5e; }
+  .tempo.down { color: var(--down); border: 1px solid #5e3a1c; }
+  .result-head { display: flex; align-items: center; justify-content: space-between; }
+  .result-head .count { color: var(--muted); font-size: .85rem; }
+  .status-msg { font-size: .85rem; color: var(--muted); white-space: pre-wrap; }
+  .status-msg.err { color: var(--err); }
+  .status-msg.ok { color: var(--ok); }
+  .field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
+  .field label { min-width: 0; }
+  details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+  input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .console {
+    background: #07090d; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; max-height: 220px; overflow-y: auto;
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: .78rem;
+    color: #b9c2d6; white-space: pre-wrap; word-break: break-all; line-height: 1.55;
+  }
+  .console .live { color: var(--accent-2); }
+  /* —— Waveforms —— */
+  .wave-panel {
+    background: linear-gradient(180deg, #0a0c14 0%, #0d1020 100%);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 12px 8px; display: none; flex-direction: column; gap: 6px;
+  }
+  .wave-panel.show { display: flex; }
+  .wave-canvas { width: 100%; height: 96px; display: block; border-radius: 6px; }
+  .wave-scale {
+    display: flex; justify-content: space-between;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: .7rem; color: var(--muted);
+  }
+  .wave-caption { font-size: .74rem; color: var(--accent-2); letter-spacing: .03em; }
+  /* —— Expandable library —— */
+  .folder-row {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 12px; font-size: .88rem;
+    transition: border-color .15s;
+  }
+  .folder-row:hover { border-color: var(--accent); }
+  .folder-row .chev { color: var(--muted); transition: transform .18s; font-size: .8rem; }
+  .folder-row.open .chev { transform: rotate(90deg); color: var(--accent-2); }
+  .folder-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder-tracks {
+    display: none; flex-direction: column; gap: 4px;
+    margin: 4px 0 6px 14px; padding-left: 10px; border-left: 1px solid var(--border);
+  }
+  .folder-tracks.open { display: flex; }
+  .track-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 8px; border-radius: 7px; background: #10141f;
+  }
+  .track-row .tname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
+  .thumb-canvas {
+    width: 120px; height: 26px; flex: none; border-radius: 4px; background: #0a0c14;
+  }
+  /* —— Player bar —— */
+  body { padding-bottom: 96px; }
+  /* While the player + visualizer occupy the bottom, add room so the last
+     tracklist rows can scroll fully above them. */
+  body.playing { padding-bottom: 220px; }
+  .play-btn {
+    flex: none; width: 26px; height: 26px; border-radius: 50%;
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-size: .68rem; padding: 0; display: flex; align-items: center; justify-content: center;
+  }
+  .play-btn:hover { border-color: var(--accent-2); color: var(--accent-2); filter: none; }
+  .play-btn.playing {
+    border-color: var(--accent-2); color: var(--accent-2);
+    box-shadow: 0 0 8px rgba(70,200,255,.45);
+  }
+  .track-row.playing { border: 1px solid rgba(70,200,255,.4); background: #101a2c; }
+  #playerBar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    display: none; align-items: center; gap: 14px;
+    padding: 10px 24px;
+    background: rgba(10,12,20,.92); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 24px rgba(109,93,252,.15);
+  }
+  #playerBar.show { display: flex; }
+  #playerBar .np {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: .85rem;
+  }
+  #playerBar .np b { color: var(--accent-2); font-weight: 600; }
+  #playerBar audio { display: none; }
+  .pp-big { width: 34px; height: 34px; font-size: .85rem; }
+  .player-wave {
+    width: min(420px, 45vw); height: 36px; flex: none;
+    border-radius: 6px; background: #07090d; cursor: pointer;
+    touch-action: none;
+  }
+  .ptime {
+    flex: none; font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: .75rem; color: var(--muted); white-space: nowrap;
+  }
+  #pVol {
+    flex: none; width: 70px; height: 4px; accent-color: var(--accent-2);
+    cursor: pointer;
+  }
+  /* —— Live 3D waveform trail above the player bar —— */
+  #vizWrap {
+    position: fixed; left: 0; right: 0; bottom: 57px; height: 140px;
+    pointer-events: none; z-index: 40; display: none;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 35%);
+    mask-image: linear-gradient(180deg, transparent 0%, #000 35%);
+  }
+  #vizWrap.show { display: block; }
+  #viz3d { width: 100%; height: 100%; display: block; }
+  .stop-btn {
+    flex: none; background: transparent; border: 1px solid #7f1d1d;
+    color: var(--err); border-radius: 8px; padding: 6px 14px;
+    font-size: .82rem; white-space: nowrap;
+  }
+  .stop-btn:hover {
+    background: rgba(248,113,113,.12); border-color: var(--err);
+    box-shadow: 0 0 10px rgba(248,113,113,.35); filter: none;
+  }
+  /* —— Editable unidentified rows —— */
+  .tl-row .edit-btn {
+    flex: none; background: transparent; border: none; color: var(--warn);
+    font-size: .8rem; padding: 2px 4px; cursor: pointer; opacity: .7;
+  }
+  .tl-row .edit-btn:hover { opacity: 1; filter: none; }
+  .tl-row input.name-edit {
+    flex: 1; min-width: 0; background: #0a0c14; color: var(--text);
+    border: 1px solid var(--warn); border-radius: 6px; padding: 3px 8px;
+    font: inherit; font-size: .85rem;
+  }
+  .tl-row.named { border: 1px solid #2a4a5e; background: rgba(70,200,255,.05); }
+  .tl-row.named .title { color: var(--text); font-style: normal; }
+  .tl-row.named .ts { color: var(--accent-2); }
+  .manual-tag { font-size: .68rem; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 20px; padding: 1px 7px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SCRipper</h1>
+  <span>download &middot; fingerprint &middot; identify</span>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-tab="mixid">MixID</button>
+  <button class="tab" data-tab="scripper">SCRipper</button>
+</div>
+
+<main>
+  <!-- ================= MIXID TAB ================= -->
+  <div class="tab-page active" id="page-mixid">
+    <section class="card">
+      <h2>Library</h2>
+      <div class="hint" id="libSummary">Loading…</div>
+
+      <div class="field">
+        <button id="pickFolderBtn">Add a folder from my computer…</button>
+        <input type="file" id="folderInput" webkitdirectory hidden>
+      </div>
+      <div class="hint">
+        Uploads the audio from a folder on your computer (including other
+        drives) into the library and fingerprints it.
+      </div>
+      <div id="folderConfirm" style="display:none">
+        <div class="field">
+          <span id="folderConfirmMsg"></span>
+        </div>
+        <div class="field">
+          <label>Save as folder:</label>
+          <input type="text" id="folderDestName" style="width:180px">
+          <button id="folderConfirmGo">Upload &amp; index</button>
+          <button class="ghost" id="folderConfirmCancel">Cancel</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Or re-index an existing folder:</label>
+        <select id="reindexSel"></select>
+        <button class="ghost" id="reindexGo">Index</button>
+      </div>
+
+      <div class="progress-wrap" id="indexProgress" style="display:none">
+        <div class="progress-label"><span id="indexDetail"></span><span id="indexPct"></span></div>
+        <div class="progress-bar"><div class="progress-fill" id="indexFill"></div></div>
+      </div>
+      <div class="status-msg" id="indexStatus"></div>
+
+      <details>
+        <summary>Past scans</summary>
+        <div class="listing" id="historyList" style="margin-top:8px"></div>
+      </details>
+      <details>
+        <summary>Indexed folders</summary>
+        <div class="listing" id="libList" style="margin-top:8px"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Identify Mix</h2>
+      <div class="drop" id="drop">
+        <strong>Drop a mix recording here</strong><br>
+        or click to browse — wav, mp3, m4a, flac<br>
+        <input type="file" id="fileInput" accept=".wav,.mp3,.m4a,.flac,.ogg,.aiff" hidden>
+      </div>
+      <div class="field">
+        <label>Min matched segments per track:</label>
+        <input type="number" id="minSeg" value="2" min="1" max="10" style="width:56px">
+        <span>(lower = more sensitive)</span>
+      </div>
+      <div class="progress-wrap" id="idProgress" style="display:none">
+        <div class="progress-label"><span id="idDetail"></span><span id="idPct"></span></div>
+        <div class="progress-bar"><div class="progress-fill" id="idFill"></div></div>
+      </div>
+      <div class="wave-panel" id="mixWavePanel">
+        <div class="wave-caption" id="mixWaveCaption">scanning…</div>
+        <canvas class="wave-canvas" id="mixWave"></canvas>
+        <div class="wave-scale"><span>0:00</span><span id="mixWaveEnd"></span></div>
+      </div>
+      <div class="status-msg" id="idStatus"></div>
+      <div id="resultBox" style="display:none">
+        <div class="result-head">
+          <span class="count" id="resultCount"></span>
+          <span style="display:flex; gap:8px">
+            <button class="ghost" id="copyBtn">Copy tracklist</button>
+            <button class="ghost" id="clearBtn">Clear</button>
+          </span>
+        </div>
+        <div class="tracklist" id="tracklist" style="margin-top:8px"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================= SCRIPPER TAB ================= -->
+  <div class="tab-page" id="page-scripper">
+    <section class="card">
+      <h2>Download Tracks</h2>
+      <div class="hint">Paste SoundCloud / YouTube URLs — single tracks or playlists, separated by commas or new lines.</div>
+      <details id="cookieBox">
+        <summary id="cookieSummary">🍪 Cookies: checking…</summary>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px">
+          <div class="hint">
+            Without cookies, only public tracks download. To use your own
+            SoundCloud/YouTube session (private tracks, Go+ quality), log in
+            once through the built-in browser — your password goes straight
+            to SoundCloud, and only the session cookies are captured:
+          </div>
+          <div class="field">
+            <button id="openBrowserBtn">1. Open login browser</button>
+            <button id="captureBtn">2. Capture cookies</button>
+            <button class="ghost" id="cookieDeleteBtn" style="display:none">Remove cookies</button>
+            <span class="status-msg" id="cookieMsg"></span>
+          </div>
+          <details>
+            <summary>Manual alternative: upload a cookies.txt export</summary>
+            <div class="field" style="margin-top:8px">
+              <button class="ghost" id="cookieUploadBtn">Upload cookies.txt</button>
+              <input type="file" id="cookieInput" accept=".txt" hidden>
+              <span class="hint">Netscape format, e.g. from the "Get cookies.txt LOCALLY" extension</span>
+            </div>
+          </details>
+        </div>
+      </details>
+      <textarea id="urlInput" placeholder="https://soundcloud.com/artist/track&#10;https://soundcloud.com/artist/sets/playlist"></textarea>
+      <div class="field">
+        <button id="resolveBtn">Check URLs</button>
+        <span class="status-msg" id="resolveStatus"></span>
+      </div>
+      <div class="listing" id="resolveList"></div>
+      <div class="field" id="destRow" style="display:none">
+        <label>Save to:</label>
+        <select id="destSel"></select>
+        <input type="text" id="destNew" placeholder="new folder name" style="display:none; width:160px">
+        <label><input type="checkbox" id="indexAfter" checked> Index into MixID after download</label>
+      </div>
+      <div class="field" id="dlRow" style="display:none">
+        <button id="downloadBtn">Download</button>
+        <span class="hint" id="dlSummaryHint"></span>
+      </div>
+      <div class="progress-wrap" id="dlProgress" style="display:none">
+        <div class="progress-label"><span id="dlDetail"></span><span id="dlPct"></span></div>
+        <div class="progress-bar"><div class="progress-fill" id="dlFill"></div></div>
+      </div>
+      <div class="console" id="dlConsole" style="display:none"></div>
+      <div class="status-msg" id="dlStatus"></div>
+      <details id="dlResultsBox" style="display:none">
+        <summary id="dlResultHint"></summary>
+        <div class="listing" id="dlResults" style="margin-top:8px"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Files</h2>
+      <div class="field">
+        <select id="fbFolder"></select>
+        <button class="ghost" id="fbRefresh" title="Refresh">↻</button>
+      </div>
+      <div class="field">
+        <button id="fbZip">⬇ Download folder (.zip)</button>
+        <button class="ghost" id="fbUploadBtn">⬆ Add tracks…</button>
+        <input type="file" id="fbUploadInput" multiple hidden
+               accept=".mp3,.m4a,.wav,.flac,.ogg,.aiff,.aif">
+      </div>
+      <div class="hint">
+        ⬇ saves to your browser's Downloads folder — no need to dig into
+        the container or project folders. ⬆ adds your own audio files to
+        the selected folder so they can be indexed and played.
+      </div>
+      <div class="listing" id="fbList"></div>
+      <div class="status-msg" id="fbStatus"></div>
+    </section>
+  </div>
+</main>
+
+<div id="vizWrap"><canvas id="viz3d"></canvas></div>
+<div id="playerBar">
+  <button id="ppBtn" class="play-btn pp-big" title="Play/Pause">▶</button>
+  <span class="np" id="npLabel">—</span>
+  <canvas id="playerWave" class="player-wave"></canvas>
+  <span class="ptime" id="pTime">0:00 / 0:00</span>
+  <input type="range" id="pVol" min="0" max="1" step="0.05" value="1" title="Volume">
+  <button id="playerClose" class="stop-btn" title="Stop">⏹</button>
+  <audio id="player" preload="none"></audio>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let lastTracklistText = "";
+let resolvedItems = [];
+
+function fmtTs(sec) {
+  sec = Math.floor(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+// ---- Waveform rendering ----
+function prepCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = Math.max(1, Math.round(w * dpr));
+  canvas.height = Math.max(1, Math.round(h * dpr));
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
+// Big mix waveform with a neon scan head + track boundary markers.
+function drawMixWaveform(canvas, peaks, opts = {}) {
+  if (!peaks || !peaks.length) return;
+  const { ctx, w, h } = prepCanvas(canvas);
+  const progress = opts.progress == null ? 1 : opts.progress;
+  const mid = h / 2, n = peaks.length, bw = w / n;
+  const scanX = progress * w;
+  for (let i = 0; i < n; i++) {
+    const x = i * bw;
+    const bh = Math.max(1, peaks[i] * (h * 0.92));
+    const scanned = x <= scanX;
+    if (scanned) {
+      const g = ctx.createLinearGradient(0, mid - bh / 2, 0, mid + bh / 2);
+      g.addColorStop(0, "#46c8ff");
+      g.addColorStop(1, "#6d5dfc");
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = "#2a3350";
+    }
+    ctx.fillRect(x, mid - bh / 2, Math.max(1, bw * 0.7), bh);
+  }
+  // track boundary markers
+  (opts.markers || []).forEach(m => {
+    const x = m.frac * w;
+    ctx.beginPath();
+    ctx.setLineDash(m.unidentified ? [3, 3] : []);
+    ctx.strokeStyle = m.unidentified ? "#fbbf24" : "rgba(230,233,242,.55)";
+    ctx.lineWidth = 1;
+    ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+  // neon scan head
+  if (progress < 1) {
+    ctx.save();
+    ctx.shadowColor = "#46c8ff";
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = "#9fe6ff";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(scanX, 0); ctx.lineTo(scanX, h); ctx.stroke();
+    ctx.restore();
+  }
+  // playback marker (pink) — shows where slice playback currently is
+  if (opts.playFrac != null && opts.playFrac >= 0) {
+    const px = Math.min(1, opts.playFrac) * w;
+    ctx.save();
+    ctx.shadowColor = "#ff4fd8";
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = "#ff8fe6";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// Small thumbnail waveform for library tracks.
+function drawThumb(canvas, peaks) {
+  if (!peaks || !peaks.length) return;
+  const { ctx, w, h } = prepCanvas(canvas);
+  const mid = h / 2, n = peaks.length, bw = w / n;
+  const g = ctx.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, "#46c8ff");
+  g.addColorStop(1, "#8a5dfc");
+  ctx.fillStyle = g;
+  for (let i = 0; i < n; i++) {
+    const bh = Math.max(1, peaks[i] * (h * 0.9));
+    ctx.fillRect(i * bw, mid - bh / 2, Math.max(1, bw * 0.6), bh);
+  }
+}
+
+// ---- Tabs ----
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".tab-page").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  $("page-" + t.dataset.tab).classList.add("active");
+}));
+
+// ---- Job polling (shared) ----
+function renderConsole(el, j) {
+  const lines = (j.log || []).slice();
+  const live = Object.entries(j.active || {})
+    .map(([f, p]) => `⬇ ${f} … ${p}`);
+  if (!lines.length && !live.length) return;
+  el.style.display = "block";
+  // Preserve scroll position unless the user is already at the bottom
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+  el.innerHTML = lines.map(esc).join("\n") +
+    (live.length ? "\n" + live.map(l => `<span class="live">${esc(l)}</span>`).join("\n") : "");
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function pollJob(jid, ui) {
+  ui.wrap.style.display = "flex";
+  ui.fill.classList.add("indeterminate");
+  if (ui.console) { ui.console.style.display = "none"; ui.console.innerHTML = ""; }
+  const iv = setInterval(async () => {
+    const j = await fetch("/api/job/" + jid).then(r => r.json());
+    ui.detail.textContent = j.status === "queued" ? "Waiting for previous job…" : (j.detail || j.label);
+    if (j.progress != null) {
+      ui.fill.classList.remove("indeterminate");
+      ui.fill.style.width = (j.progress * 100).toFixed(1) + "%";
+      ui.pct.textContent = (j.progress * 100).toFixed(0) + "%";
+    }
+    if (ui.console) renderConsole(ui.console, j);
+    if (ui.onPoll) ui.onPoll(j);
+    if (j.status === "done") {
+      clearInterval(iv);
+      ui.wrap.style.display = "none";
+      ui.fill.style.width = "0%"; ui.pct.textContent = "";
+      if (ui.console) renderConsole(ui.console, j);
+      ui.onDone(j.result);
+    } else if (j.status === "error") {
+      clearInterval(iv);
+      ui.wrap.style.display = "none";
+      ui.status.className = "status-msg err";
+      ui.status.textContent = "Error: " + j.error;
+      if (ui.onError) ui.onError(j.error);
+    }
+  }, 1200);
+}
+
+// ============================================================
+// MixID
+// ============================================================
+// ---- Player ----
+const player = $("player");
+let currentTrackPath = null, currentPlayBtn = null;
+// Mix slice playback state
+let currentJobId = null;     // job id of the retained mix (null for history)
+let mixPlaying = false;      // true while the player is streaming the mix
+let mixSeekTo = 0;           // pending seek target after mix metadata loads
+
+function playMixSlice(startSec, btn) {
+  if (!currentJobId) return;
+  setPlayingUI(currentPlayBtn, false);
+  currentPlayBtn = btn || null;
+  currentTrackPath = "__mix__";
+  mixPlaying = true;
+  mixSeekTo = startSec;
+  player.src = "/api/mix-stream?job=" + encodeURIComponent(currentJobId);
+  $("npLabel").innerHTML = `♪ mix — <b>from ${fmtTs(startSec)}</b>`;
+  $("playerBar").classList.add("show");
+  playerPeaks = mixWave;      // reuse the mix waveform in the player bar
+  initAnalyser();
+  startViz();
+  player.play();
+}
+
+function updateMixMarker() {
+  if (!mixPlaying || !mixWave || !mixDur) return;
+  drawMixWaveform($("mixWave"), mixWave, {
+    progress: 1, markers: mixLastMarkers || [],
+    playFrac: player.currentTime / mixDur,
+  });
+}
+
+function setPlayingUI(btn, playing) {
+  if (!btn) return;
+  btn.textContent = playing ? "⏸" : "▶";
+  btn.classList.toggle("playing", playing);
+  const row = btn.closest(".track-row");
+  if (row) row.classList.toggle("playing", playing);
+}
+
+// Waveform seek bar state
+let playerPeaks = null;
+
+function drawPlayerWave() {
+  const canvas = $("playerWave");
+  if (!playerPeaks || !playerPeaks.length) {
+    const { ctx, w, h } = prepCanvas(canvas);
+    ctx.fillStyle = "#1a2030";
+    ctx.fillRect(0, h / 2 - 1, w, 2);   // placeholder line while peaks load
+    return;
+  }
+  const { ctx, w, h } = prepCanvas(canvas);
+  const frac = player.duration ? player.currentTime / player.duration : 0;
+  const mid = h / 2, n = playerPeaks.length, bw = w / n;
+  const playX = frac * w;
+  for (let i = 0; i < n; i++) {
+    const x = i * bw;
+    const bh = Math.max(1, playerPeaks[i] * (h * 0.9));
+    if (x <= playX) {
+      const g = ctx.createLinearGradient(0, mid - bh / 2, 0, mid + bh / 2);
+      g.addColorStop(0, "#46c8ff");
+      g.addColorStop(1, "#6d5dfc");
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = "#2a3350";
+    }
+    ctx.fillRect(x, mid - bh / 2, Math.max(1, bw * 0.65), bh);
+  }
+  // glowing playhead
+  if (frac > 0 && frac < 1) {
+    ctx.save();
+    ctx.shadowColor = "#46c8ff";
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "#9fe6ff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, h); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function updatePTime() {
+  const cur = player.currentTime || 0;
+  const dur = player.duration || 0;
+  $("pTime").textContent = `${fmtTs(cur)} / ${dur ? fmtTs(dur) : "0:00"}`;
+}
+
+async function loadPlayerWave(relPath) {
+  playerPeaks = null;
+  drawPlayerWave();
+  try {
+    const r = await fetch("/api/waveform?path=" + encodeURIComponent(relPath) + "&buckets=220")
+      .then(r => r.json());
+    // Ignore stale responses if the user already switched tracks
+    if (currentTrackPath === relPath && r.peaks) {
+      playerPeaks = r.peaks;
+      drawPlayerWave();
+    }
+  } catch (_) { /* keep placeholder */ }
+}
+
+function playTrack(relPath, displayName, btn) {
+  if (currentTrackPath === relPath) {
+    if (player.paused) player.play(); else player.pause();
+    return;
+  }
+  setPlayingUI(currentPlayBtn, false);
+  mixPlaying = false;
+  currentTrackPath = relPath;
+  currentPlayBtn = btn;
+  player.src = "/api/stream?path=" + encodeURIComponent(relPath);
+  $("npLabel").innerHTML = `♪ now playing — <b>${esc(displayName)}</b>`;
+  $("playerBar").classList.add("show");
+  updatePTime();
+  loadPlayerWave(relPath);
+  // Init inside the click gesture (autoplay policy) and start the trail.
+  initAnalyser();
+  startViz();
+  player.play();
+}
+
+// ---- Live 3D waveform trail (above the player bar) ----
+const viz = $("viz3d");
+let actx = null, analyser = null, vizBuf = null;
+let vizRows = [];            // {pts, born}
+let vizRaf = null, vizLastCap = 0;
+const VIZ_LIFE = 2600;       // ms for a line to recede and fade out
+const VIZ_EVERY = 60;        // ms between captured trail lines
+const VIZ_POINTS = 128;
+const livePts = new Float32Array(VIZ_POINTS);   // front line, updated every frame
+
+function initAnalyser() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  // Note: a media element can be wired to Web Audio only once — after
+  // this, all playback routes through the analyser to the speakers.
+  const src = actx.createMediaElementSource(player);
+  analyser = actx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.55;   // snappier transients
+  src.connect(analyser);
+  analyser.connect(actx.destination);
+  vizBuf = new Uint8Array(analyser.frequencyBinCount);
+}
+
+let vizPeak = 0.4;    // rolling peak for auto-gain
+let vizPunch = 0;     // bass transient envelope (fast attack, slow decay)
+
+function computeSpectrum(out) {
+  // EQ-style: frequency spectrum, log-spaced — bass left, highs right.
+  analyser.getByteFrequencyData(vizBuf);
+  const nyquist = actx.sampleRate / 2;
+  const bins = vizBuf.length;
+  const fmin = 40, fmax = Math.min(16000, nyquist);
+  let frameMax = 0;
+  for (let j = 0; j < VIZ_POINTS; j++) {
+    const f0 = fmin * Math.pow(fmax / fmin, j / VIZ_POINTS);
+    const f1 = fmin * Math.pow(fmax / fmin, (j + 1) / VIZ_POINTS);
+    const b0 = Math.min(bins - 1, Math.floor(f0 / nyquist * bins));
+    const b1 = Math.max(b0 + 1, Math.ceil(f1 / nyquist * bins));
+    let sum = 0;
+    for (let b = b0; b < b1; b++) sum += vizBuf[b];
+    let v = (sum / (b1 - b0)) / 255;
+    // gentle high-shelf so the treble side stays visible
+    v *= 0.9 + 0.6 * (j / VIZ_POINTS);
+    // Noise-floor cut + expansion: quiet bins hug the valley floor,
+    // loud ones tower — much more dynamic range on screen.
+    let n = (v - 0.28) / 0.62;
+    n = n < 0 ? 0 : n > 1 ? 1 : n;
+    n = Math.pow(n, 1.3);
+    out[j] = n;
+    if (n > frameMax) frameMax = n;
+  }
+  // Rolling auto-gain: always use the full height, whatever the track's
+  // loudness. Peak decays slowly so the scale adapts over a few seconds.
+  vizPeak = Math.max(frameMax, vizPeak * 0.996, 0.30);
+  const gain = 0.95 / vizPeak;
+  for (let j = 0; j < VIZ_POINTS; j++) {
+    out[j] = Math.min(1, out[j] * gain);
+  }
+  // Bass punch envelope from the low third — makes the range pump on kicks.
+  let bass = 0;
+  const nb = Math.floor(VIZ_POINTS * 0.15);
+  for (let j = 0; j < nb; j++) bass += out[j];
+  bass /= nb;
+  vizPunch = bass > vizPunch ? bass : vizPunch * 0.88;
+}
+
+function captureVizRow() {
+  const pts = new Float32Array(VIZ_POINTS);
+  computeSpectrum(pts);
+  vizRows.push({ pts, born: performance.now() });
+  if (vizRows.length > 48) vizRows.shift();
+}
+
+// Silky ridge path: quadratic curves through segment midpoints.
+function traceRidge(ctx, pts, inset, base, ampH, w) {
+  const n = pts.length;
+  const span = w - 2 * inset;
+  const X = j => inset + span * j / (n - 1);
+  const Y = j => base - pts[j] * ampH;
+  ctx.moveTo(X(0), Y(0));
+  for (let j = 1; j < n - 1; j++) {
+    ctx.quadraticCurveTo(X(j), Y(j), (X(j) + X(j + 1)) / 2, (Y(j) + Y(j + 1)) / 2);
+  }
+  ctx.lineTo(X(n - 1), Y(n - 1));
+}
+
+function drawViz(now) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = viz.clientWidth, h = viz.clientHeight;
+  if (viz.width !== Math.round(w * dpr) || viz.height !== Math.round(h * dpr)) {
+    viz.width = Math.round(w * dpr);
+    viz.height = Math.round(h * dpr);
+  }
+  const ctx = viz.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  vizRows = vizRows.filter(r => now - r.born < VIZ_LIFE);
+  // Paint oldest (deepest) first so newer ridges occlude them.
+  const drawRidge = (pts, depth, isLive) => {
+    const alpha = Math.pow(1 - depth, 1.5);
+    const inset = depth * w * 0.22;                    // perspective pinch
+    const base = h - 4 - depth * (h - 30);             // recede upward
+    // Height breathes with the bass punch — the whole range pumps on kicks.
+    const ampH = h * 0.56 * (1 - depth * 0.6) * (1 + 0.3 * vizPunch);
+    ctx.beginPath();
+    traceRidge(ctx, pts, inset, base, ampH, w);
+    // fill under the ridge to occlude deeper lines (3D effect)
+    ctx.lineTo(w - inset, base);
+    ctx.lineTo(inset, base);
+    ctx.closePath();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "rgba(8,10,16,0.9)";
+    ctx.fill();
+    // Height-mapped gradient: valleys cool blue, peaks burn hot pink.
+    const g = ctx.createLinearGradient(0, base, 0, base - ampH);
+    g.addColorStop(0.0, "#2b59ff");   // valley — deep blue
+    g.addColorStop(0.4, "#46c8ff");   // cyan
+    g.addColorStop(0.7, "#8a5dfc");   // purple
+    g.addColorStop(1.0, "#ff4fd8");   // peak — hot pink
+    ctx.strokeStyle = g;
+    ctx.lineWidth = isLive ? 2 : 1.1;
+    // Shadows are the expensive part — only glow the nearer lines.
+    if (depth < 0.55) {
+      ctx.shadowColor = depth < 0.35 ? "#46c8ff" : "#8a5dfc";
+      ctx.shadowBlur = (isLive ? 20 : 14) * (1 - depth);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  };
+
+  for (const r of vizRows) {
+    drawRidge(r.pts, (now - r.born) / VIZ_LIFE, false);
+  }
+  // The live front line renders every frame for a liquid-smooth ridge.
+  if (analyser && !player.paused) {
+    computeSpectrum(livePts);
+    drawRidge(livePts, 0, true);
+  }
+}
+
+function vizLoop() {
+  const now = performance.now();
+  if (!player.paused && analyser && now - vizLastCap >= VIZ_EVERY) {
+    captureVizRow();
+    vizLastCap = now;
+  }
+  drawViz(now);
+  // Keep animating while playing, or until leftover lines finish fading.
+  if (!player.paused || vizRows.length) {
+    vizRaf = requestAnimationFrame(vizLoop);
+  } else {
+    vizRaf = null;
+  }
+}
+
+function startViz() {
+  $("vizWrap").classList.add("show");
+  document.body.classList.add("playing");
+  if (actx && actx.state === "suspended") actx.resume();
+  if (!vizRaf) vizRaf = requestAnimationFrame(vizLoop);
+}
+
+function stopViz() {
+  if (vizRaf) { cancelAnimationFrame(vizRaf); vizRaf = null; }
+  vizRows = [];
+  $("vizWrap").classList.remove("show");
+  document.body.classList.remove("playing");
+}
+
+// Click / drag on the waveform to seek
+const pwCanvas = $("playerWave");
+let scrubbing = false;
+
+function seekFromPointer(e) {
+  if (!player.duration) return;
+  const rect = pwCanvas.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  player.currentTime = frac * player.duration;
+  drawPlayerWave();
+  updatePTime();
+}
+pwCanvas.addEventListener("pointerdown", e => {
+  scrubbing = true;
+  pwCanvas.setPointerCapture(e.pointerId);
+  seekFromPointer(e);
+});
+pwCanvas.addEventListener("pointermove", e => { if (scrubbing) seekFromPointer(e); });
+pwCanvas.addEventListener("pointerup", () => { scrubbing = false; });
+pwCanvas.addEventListener("pointercancel", () => { scrubbing = false; });
+
+$("ppBtn").addEventListener("click", () => {
+  if (!player.src) return;
+  if (player.paused) player.play(); else player.pause();
+});
+$("pVol").addEventListener("input", e => { player.volume = +e.target.value; });
+
+// Smooth playhead: rAF loop while playing (timeupdate is only ~4 Hz)
+let rafId = null;
+function waveLoop() {
+  if (!scrubbing) { drawPlayerWave(); updatePTime(); }
+  rafId = requestAnimationFrame(waveLoop);
+}
+function stopWaveLoop() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+}
+
+player.addEventListener("play", () => {
+  setPlayingUI(currentPlayBtn, true);
+  $("ppBtn").textContent = "⏸"; $("ppBtn").classList.add("playing");
+  stopWaveLoop(); waveLoop();
+  startViz();
+});
+player.addEventListener("pause", () => {
+  setPlayingUI(currentPlayBtn, false);
+  $("ppBtn").textContent = "▶"; $("ppBtn").classList.remove("playing");
+  stopWaveLoop();
+  // Hand the live front line off into the fading trail (no pop on pause).
+  if (analyser) captureVizRow();
+});
+player.addEventListener("ended", () => {
+  setPlayingUI(currentPlayBtn, false);
+  $("ppBtn").textContent = "▶"; $("ppBtn").classList.remove("playing");
+  stopWaveLoop();
+  drawPlayerWave(); updatePTime();
+});
+player.addEventListener("timeupdate", () => {
+  if (!scrubbing) { drawPlayerWave(); updatePTime(); }
+  updateMixMarker();
+});
+player.addEventListener("loadedmetadata", () => {
+  if (mixPlaying && mixSeekTo) {
+    try { player.currentTime = mixSeekTo; } catch (_) {}
+    mixSeekTo = 0;
+  }
+  drawPlayerWave(); updatePTime(); updateMixMarker();
+});
+
+$("playerClose").addEventListener("click", () => {
+  player.pause();
+  player.removeAttribute("src");
+  player.load();
+  stopWaveLoop();
+  stopViz();
+  setPlayingUI(currentPlayBtn, false);
+  $("ppBtn").textContent = "▶"; $("ppBtn").classList.remove("playing");
+  playerPeaks = null;
+  currentTrackPath = null; currentPlayBtn = null;
+  if (mixPlaying) {
+    mixPlaying = false;
+    // clear the pink playback marker from the mix waveform
+    if (mixWave) drawMixWaveform($("mixWave"), mixWave,
+      { progress: 1, markers: mixLastMarkers || [] });
+  }
+  $("playerBar").classList.remove("show");
+});
+
+// Concurrency-limited thumbnail loader. Triggered when a folder is
+// expanded; draws each track's mini-waveform (cached server-side).
+const _thumbQueue = [];
+let _thumbActive = 0;
+const THUMB_CONCURRENCY = 4;
+
+function enqueueThumb(cv) { _thumbQueue.push(cv); pumpThumbs(); }
+
+function pumpThumbs() {
+  while (_thumbActive < THUMB_CONCURRENCY && _thumbQueue.length) {
+    const cv = _thumbQueue.shift();
+    _thumbActive++;
+    fetch("/api/waveform?path=" + encodeURIComponent(cv.dataset.path))
+      .then(r => r.json())
+      .then(r => { if (r.peaks) drawThumb(cv, r.peaks); })
+      .catch(() => { /* leave blank on failure */ })
+      .finally(() => { _thumbActive--; pumpThumbs(); });
+  }
+}
+
+async function loadLibrarySummary() {
+  const r = await fetch("/api/library").then(r => r.json());
+  $("libSummary").innerHTML = `<b>${r.total}</b> tracks fingerprinted across <b>${r.folders.length}</b> folders`;
+  const L = $("libList");
+  L.innerHTML = "";
+  if (!r.folders.length) { L.innerHTML = `<div class="hint">Nothing indexed yet.</div>`; return; }
+  for (const f of r.folders) {
+    const wrap = document.createElement("div");
+
+    const row = document.createElement("div");
+    row.className = "folder-row";
+    row.innerHTML = `<span class="chev">▶</span>` +
+      `<span class="name">📁 ${esc(f.name)}</span>` +
+      `<span class="meta">${f.tracks.length} tracks</span>`;
+
+    const tracksBox = document.createElement("div");
+    tracksBox.className = "folder-tracks";
+    let built = false;
+
+    row.addEventListener("click", () => {
+      const open = tracksBox.classList.toggle("open");
+      row.classList.toggle("open", open);
+      if (open && !built) {
+        built = true;
+        for (const t of f.tracks) {
+          const rel = f.name === "/" ? t : f.name + "/" + t;
+          const displayName = t.replace(/\.[^.]+$/, "");
+          const tr = document.createElement("div");
+          tr.className = "track-row";
+          const pb = document.createElement("button");
+          pb.className = "play-btn";
+          pb.textContent = "▶";
+          pb.title = "Play";
+          pb.addEventListener("click", e => {
+            e.stopPropagation();
+            playTrack(rel, displayName, pb);
+          });
+          const cv = document.createElement("canvas");
+          cv.className = "thumb-canvas";
+          cv.dataset.path = rel;
+          const label = document.createElement("span");
+          label.className = "tname";
+          label.textContent = displayName;
+          tr.appendChild(pb);
+          tr.appendChild(label);
+          tr.appendChild(cv);
+          tracksBox.appendChild(tr);
+          // Canvas has a fixed CSS size, so its layout box is available
+          // synchronously — enqueue directly (no requestAnimationFrame,
+          // which can be paused on background tabs).
+          enqueueThumb(cv);
+        }
+      }
+    });
+
+    wrap.appendChild(row);
+    wrap.appendChild(tracksBox);
+    L.appendChild(wrap);
+  }
+}
+
+// Add a folder from the user's computer: upload its audio, then index it.
+const AUDIO_RE = /\.(mp3|m4a|wav|flac|ogg|aiff|aif)$/i;
+let pendingFolderFiles = [];
+
+$("pickFolderBtn").addEventListener("click", () => $("folderInput").click());
+$("folderInput").addEventListener("change", e => {
+  const all = [...e.target.files];
+  const folderName = all.length ? all[0].webkitRelativePath.split("/")[0] : "";
+  pendingFolderFiles = all.filter(f => AUDIO_RE.test(f.name));
+  e.target.value = "";
+  if (!pendingFolderFiles.length) {
+    $("indexStatus").className = "status-msg err";
+    $("indexStatus").textContent = "That folder has no audio files.";
+    return;
+  }
+  const mb = pendingFolderFiles.reduce((s, f) => s + f.size, 0) / 1048576;
+  $("folderConfirmMsg").textContent =
+    `${pendingFolderFiles.length} audio file${pendingFolderFiles.length > 1 ? "s" : ""} ` +
+    `(${mb.toFixed(0)} MB) from "${folderName}"`;
+  $("folderDestName").value = folderName;
+  $("folderConfirm").style.display = "block";
+  $("indexStatus").textContent = "";
+});
+$("folderConfirmCancel").addEventListener("click", () => {
+  $("folderConfirm").style.display = "none";
+  pendingFolderFiles = [];
+});
+$("folderConfirmGo").addEventListener("click", async () => {
+  const dest = $("folderDestName").value.trim();
+  if (!dest || !pendingFolderFiles.length) return;
+  $("folderConfirm").style.display = "none";
+  $("indexStatus").className = "status-msg";
+  $("indexStatus").textContent = `Uploading ${pendingFolderFiles.length} files…`;
+  const fd = new FormData();
+  fd.append("folder", dest);
+  pendingFolderFiles.forEach(f => fd.append("tracks", f));
+  pendingFolderFiles = [];
+  try {
+    const r = await fetch("/api/upload-tracks", {method: "POST", body: fd}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    $("indexStatus").textContent =
+      `Uploaded ${r.saved.length} files — indexing…`;
+    startIndex(dest);
+  } catch (err) {
+    $("indexStatus").className = "status-msg err";
+    $("indexStatus").textContent = "Upload failed: " + err.message;
+  }
+});
+
+// Re-index a folder already in the library.
+async function loadReindexFolders() {
+  const r = await fetch("/api/folders").then(r => r.json());
+  $("reindexSel").innerHTML = r.folders
+    .filter(f => !["mixid_app", "__pycache__", "logs"].includes(f.name) && f.audio_count)
+    .map(f => `<option value="${esc(f.name)}">${esc(f.name)} (${f.audio_count})</option>`)
+    .join("");
+}
+$("reindexGo").addEventListener("click", () => {
+  const f = $("reindexSel").value;
+  if (f) startIndex(f);
+});
+
+async function startIndex(path) {
+  $("indexStatus").className = "status-msg";
+  $("indexStatus").textContent = "";
+  const r = await fetch("/api/index", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({path}),
+  }).then(r => r.json());
+  if (r.error) { $("indexStatus").className = "status-msg err"; $("indexStatus").textContent = r.error; return; }
+  pollJob(r.job, {
+    fill: $("indexFill"), pct: $("indexPct"), detail: $("indexDetail"),
+    wrap: $("indexProgress"), status: $("indexStatus"),
+    onDone: res => {
+      $("indexStatus").className = "status-msg ok";
+      let msg = `Indexed ${res.indexed}/${res.total} tracks`;
+      if (res.duplicates && res.duplicates.length) {
+        msg += `\nSkipped ${res.duplicates.length} duplicate` +
+          (res.duplicates.length > 1 ? "s" : "") + ": " +
+          res.duplicates.map(d => `${d.file} (already have "${d.duplicate_of}")`).join("; ");
+      }
+      if (res.failed.length) msg += `\nFailed: ${res.failed.join(", ")}`;
+      $("indexStatus").textContent = msg;
+      loadLibrarySummary();
+      loadReindexFolders();
+    },
+  });
+}
+
+// ---- Identify ----
+const drop = $("drop");
+drop.addEventListener("click", () => $("fileInput").click());
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("over");
+  if (e.dataTransfer.files.length) uploadMix(e.dataTransfer.files[0]);
+});
+$("fileInput").addEventListener("change", e => {
+  if (e.target.files.length) uploadMix(e.target.files[0]);
+});
+
+let mixWave = null, mixDur = 0;
+let viewOnly = false;   // true when a recalled history scan is displayed
+
+async function uploadMix(file) {
+  $("resultBox").style.display = "none";
+  $("mixWavePanel").classList.remove("show");
+  mixWave = null; mixDur = 0; viewOnly = false;
+  $("idStatus").className = "status-msg";
+  $("idStatus").textContent = `Uploading ${file.name} (${(file.size/1048576).toFixed(0)} MB)…`;
+  const fd = new FormData();
+  fd.append("mix", file);
+  fd.append("min_segments", $("minSeg").value);
+  const r = await fetch("/api/identify", {method: "POST", body: fd}).then(r => r.json());
+  if (r.error) { $("idStatus").className = "status-msg err"; $("idStatus").textContent = r.error; return; }
+  currentJobId = r.job;   // this mix is retained server-side for slice play
+  currentScanId = r.job;  // history is keyed by job id
+  $("idStatus").textContent = "";
+  pollJob(r.job, {
+    fill: $("idFill"), pct: $("idPct"), detail: $("idDetail"),
+    wrap: $("idProgress"), status: $("idStatus"),
+    onPoll: j => {
+      if (j.waveform && j.waveform.length) {
+        mixWave = j.waveform;
+        mixDur = j.wf_duration || j.duration || 0;
+        $("mixWavePanel").classList.add("show");
+        if (mixDur) $("mixWaveEnd").textContent = fmtTs(mixDur);
+        const prog = j.progress == null ? 0 : j.progress;
+        $("mixWaveCaption").textContent =
+          j.status === "done" ? "scan complete" : `scanning… ${(prog * 100).toFixed(0)}%`;
+        drawMixWaveform($("mixWave"), mixWave, { progress: prog });
+      }
+    },
+    onDone: res => {
+      if (res.waveform && res.waveform.length) {
+        mixWave = res.waveform; mixDur = res.duration || mixDur;
+        const markers = (res.tracklist || [])
+          .filter(t => mixDur)
+          .map(t => ({ frac: Math.min(t.start / mixDur, 1), unidentified: t.unidentified }));
+        mixLastMarkers = markers;
+        $("mixWavePanel").classList.add("show");
+        $("mixWaveCaption").textContent = "scan complete";
+        drawMixWaveform($("mixWave"), mixWave, { progress: 1, markers });
+      }
+      renderTracklist(res.tracklist);
+      loadHistory();
+    },
+  });
+}
+
+// Click the mix waveform to seek during slice playback.
+$("mixWave").addEventListener("click", e => {
+  if (!mixPlaying || !mixDur || !player.duration) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  try { player.currentTime = frac * player.duration; } catch (_) {}
+  updateMixMarker();
+});
+
+// Redraw the mix waveform on resize (canvas is resolution-dependent).
+let _mixResizeTO;
+window.addEventListener("resize", () => {
+  clearTimeout(_mixResizeTO);
+  _mixResizeTO = setTimeout(() => {
+    if (mixWave && $("mixWavePanel").classList.contains("show")) {
+      const markers = mixLastMarkers || [];
+      drawMixWaveform($("mixWave"), mixWave, { progress: 1, markers });
+    }
+  }, 150);
+});
+let mixLastMarkers = null;
+
+let currentTracklist = [];
+
+function rebuildTracklistText() {
+  lastTracklistText = currentTracklist.map(t => {
+    const name = t.unidentified
+      ? (t.manual_title ? `${t.manual_title} *` : "[not identified]")
+      : t.title;
+    return `${fmtTs(t.start)} - ${name}`;
+  }).join("\n") + "\n";
+}
+
+let currentScanId = null;   // history id of the displayed scan (fresh or recalled)
+
+// A ▶ that plays the retained mix from this slice's start.
+function slicePlayBtn(t) {
+  const pb = document.createElement("button");
+  pb.className = "play-btn";
+  pb.textContent = "▶";
+  if (viewOnly || !currentJobId) {
+    pb.disabled = true;
+    pb.title = "Mix audio not available for recalled scans";
+  } else {
+    pb.title = `Play mix from ${fmtTs(t.start)}`;
+    pb.addEventListener("click", () => playMixSlice(t.start, pb));
+  }
+  return pb;
+}
+
+function makeUnidentifiedRow(t) {
+  const row = document.createElement("div");
+  const named = !!t.manual_title;
+  row.className = named ? "tl-row unknown named" : "tl-row unknown";
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = fmtTs(t.start);
+
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = named ? t.manual_title : "— track not identified —";
+
+  const edit = document.createElement("button");
+  edit.className = "edit-btn";
+  edit.title = named ? "Edit name" : "Name this track";
+  edit.textContent = "✎";
+
+  const startEdit = () => {
+    const input = document.createElement("input");
+    input.className = "name-edit";
+    input.placeholder = "type track name…";
+    input.value = t.manual_title || "";
+    row.replaceChild(input, title);
+    edit.style.display = "none";
+    input.focus();
+    let committed = false;
+    const commit = () => {
+      if (committed) return;
+      committed = true;
+      t.manual_title = input.value.trim() || null;
+      rebuildTracklistText();
+      // Persist the rename into the saved scan (fresh or recalled).
+      if (currentScanId) {
+        fetch("/api/history/" + encodeURIComponent(currentScanId), {
+          method: "PATCH", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({start: t.start, manual_title: t.manual_title}),
+        }).catch(() => {});
+      }
+      const fresh = makeUnidentifiedRow(t);
+      row.replaceWith(fresh);
+    };
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") commit();
+      if (ev.key === "Escape") { input.value = t.manual_title || ""; commit(); }
+    });
+    input.addEventListener("blur", commit);
+  };
+  edit.addEventListener("click", startEdit);
+  if (!named) title.addEventListener("click", startEdit);
+
+  row.appendChild(slicePlayBtn(t));
+  row.appendChild(ts);
+  row.appendChild(title);
+  if (named) {
+    const tag = document.createElement("span");
+    tag.className = "manual-tag";
+    tag.textContent = "named by you";
+    row.appendChild(tag);
+  }
+  row.appendChild(edit);
+  return row;
+}
+
+function renderTracklist(tl) {
+  const box = $("tracklist");
+  box.innerHTML = "";
+  currentTracklist = tl;
+  if (!tl.length) {
+    lastTracklistText = "";
+    $("idStatus").textContent = "No tracks identified. Try min segments = 1, or index more folders.";
+    return;
+  }
+  let identified = 0, unknown = 0;
+  for (const t of tl) {
+    if (t.unidentified) {
+      unknown++;
+      box.appendChild(makeUnidentifiedRow(t));
+    } else {
+      identified++;
+      const row = document.createElement("div");
+      row.className = "tl-row";
+      let tempo = "";
+      if (Math.abs(t.tempo_pct) > 0.5) {
+        const cls = t.tempo_pct > 0 ? "up" : "down";
+        tempo = `<span class="tempo ${cls}">${t.tempo_pct > 0 ? "+" : ""}${t.tempo_pct}%</span>`;
+      }
+      row.appendChild(slicePlayBtn(t));
+      const rest = document.createElement("span");
+      rest.style.cssText = "display:flex; align-items:center; gap:12px; flex:1; min-width:0";
+      rest.innerHTML = `<span class="ts">${fmtTs(t.start)}</span><span class="title">${esc(t.title)}</span>${tempo}`;
+      row.appendChild(rest);
+      box.appendChild(row);
+    }
+  }
+  rebuildTracklistText();
+  $("resultCount").textContent =
+    `${identified} tracks identified` + (unknown ? `, ${unknown} unidentified section${unknown > 1 ? "s" : ""}` : "");
+  $("resultBox").style.display = "block";
+}
+
+$("copyBtn").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(lastTracklistText);
+  $("copyBtn").textContent = "Copied!";
+  setTimeout(() => $("copyBtn").textContent = "Copy tracklist", 1500);
+});
+
+// Clear the current tracklist (it stays in Past scans).
+$("clearBtn").addEventListener("click", async () => {
+  // Stop any mix playback and drop the retained mix server-side.
+  if (mixPlaying) $("playerClose").click();
+  if (currentJobId && !viewOnly) {
+    fetch("/api/mix", {method: "DELETE"}).catch(() => {});
+  }
+  $("resultBox").style.display = "none";
+  $("mixWavePanel").classList.remove("show");
+  $("tracklist").innerHTML = "";
+  currentTracklist = []; lastTracklistText = "";
+  mixWave = null; mixDur = 0; mixLastMarkers = null;
+  currentJobId = null; currentScanId = null; viewOnly = false;
+  loadHistory();
+});
+
+// ---- Past scans (history) ----
+async function loadHistory() {
+  const r = await fetch("/api/history").then(r => r.json()).catch(() => ({items: []}));
+  const L = $("historyList");
+  L.innerHTML = "";
+  if (!r.items || !r.items.length) {
+    L.innerHTML = `<div class="hint">No past scans yet.</div>`;
+    return;
+  }
+  for (const it of r.items) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const when = it.date ? new Date(it.date * 1000).toLocaleString() : "";
+    const label = document.createElement("span");
+    label.className = "name";
+    label.style.cursor = "pointer";
+    label.title = "View this scan";
+    label.textContent = it.name || "(mix)";
+    label.addEventListener("click", () => recallScan(it.id));
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `${it.tracks} tracks · ${when}`;
+    const del = document.createElement("button");
+    del.className = "play-btn";
+    del.textContent = "✕";
+    del.title = "Delete this scan";
+    del.addEventListener("click", async e => {
+      e.stopPropagation();
+      await fetch("/api/history/" + encodeURIComponent(it.id), {method: "DELETE"});
+      loadHistory();
+    });
+    row.appendChild(label);
+    row.appendChild(meta);
+    row.appendChild(del);
+    L.appendChild(row);
+  }
+}
+
+async function recallScan(id) {
+  const rec = await fetch("/api/history/" + encodeURIComponent(id)).then(r => r.json());
+  if (rec.error) return;
+  // View-only: the mix audio is gone, so slice playback is disabled.
+  viewOnly = true;
+  currentJobId = null;
+  currentScanId = rec.id;
+  mixWave = rec.waveform || null;
+  mixDur = rec.duration || 0;
+  if (mixWave && mixWave.length) {
+    mixLastMarkers = (rec.tracklist || [])
+      .filter(t => mixDur)
+      .map(t => ({ frac: Math.min(t.start / mixDur, 1), unidentified: t.unidentified }));
+    $("mixWavePanel").classList.add("show");
+    $("mixWaveCaption").textContent = `${rec.name || "mix"} (recalled — view only)`;
+    if (mixDur) $("mixWaveEnd").textContent = fmtTs(mixDur);
+    drawMixWaveform($("mixWave"), mixWave, { progress: 1, markers: mixLastMarkers });
+  } else {
+    $("mixWavePanel").classList.remove("show");
+  }
+  renderTracklist(rec.tracklist || []);
+  $("resultBox").scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+
+// ============================================================
+// SCRipper
+// ============================================================
+async function loadDestFolders() {
+  const r = await fetch("/api/folders").then(r => r.json());
+  const sel = $("destSel");
+  sel.innerHTML = r.folders
+    .filter(f => !["mixid_app", "__pycache__", "logs"].includes(f.name))
+    .map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join("") +
+    `<option value="__new__">+ New folder…</option>`;
+}
+$("destSel").addEventListener("change", () => {
+  $("destNew").style.display = $("destSel").value === "__new__" ? "inline-block" : "none";
+});
+
+$("resolveBtn").addEventListener("click", async () => {
+  const input = $("urlInput").value.trim();
+  if (!input) return;
+  $("resolveBtn").disabled = true;
+  $("resolveStatus").className = "status-msg";
+  $("resolveStatus").textContent = "Checking…";
+  $("resolveList").innerHTML = "";
+  try {
+    const r = await fetch("/api/scripper/resolve", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({input}),
+    }).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    resolvedItems = r.items;
+    const L = $("resolveList");
+    r.items.forEach((it, i) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      if (it.kind === "error") {
+        row.innerHTML = `<span class="name">${esc(it.url)}</span><span class="badge" style="color:var(--err)">error</span>`;
+      } else if (it.kind === "playlist") {
+        row.innerHTML = `
+          <input type="checkbox" checked data-idx="${i}">
+          <span class="name">🗂 ${esc(it.title)}</span>
+          <span class="badge warn">playlist · ${it.count} tracks</span>`;
+      } else {
+        row.innerHTML = `
+          <input type="checkbox" checked data-idx="${i}">
+          <span class="name">🎵 ${esc(it.title)}</span>
+          <span class="badge">track</span>`;
+      }
+      L.appendChild(row);
+    });
+    L.addEventListener("change", updateDlSummary);
+    $("resolveStatus").textContent = "";
+    $("destRow").style.display = "flex";
+    $("dlRow").style.display = "flex";
+    updateDlSummary();
+  } catch (e) {
+    $("resolveStatus").className = "status-msg err";
+    $("resolveStatus").textContent = e.message;
+  } finally {
+    $("resolveBtn").disabled = false;
+  }
+});
+
+function selectedTrackUrls() {
+  const urls = [];
+  document.querySelectorAll("#resolveList input[type=checkbox]:checked").forEach(cb => {
+    const it = resolvedItems[+cb.dataset.idx];
+    if (it && it.tracks) urls.push(...it.tracks);
+  });
+  return urls;
+}
+function updateDlSummary() {
+  $("dlSummaryHint").textContent = `${selectedTrackUrls().length} tracks selected`;
+}
+
+$("downloadBtn").addEventListener("click", async () => {
+  const urls = selectedTrackUrls();
+  let folder = $("destSel").value;
+  if (folder === "__new__") folder = $("destNew").value.trim();
+  $("dlStatus").className = "status-msg";
+  $("dlStatus").textContent = "";
+  if (!urls.length) { $("dlStatus").textContent = "No tracks selected."; return; }
+  if (!folder) { $("dlStatus").textContent = "Choose or name a destination folder."; return; }
+  const r = await fetch("/api/scripper/download", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({urls, folder, index_after: $("indexAfter").checked}),
+  }).then(r => r.json());
+  if (r.error) { $("dlStatus").className = "status-msg err"; $("dlStatus").textContent = r.error; return; }
+  $("downloadBtn").disabled = true;
+  pollJob(r.job, {
+    fill: $("dlFill"), pct: $("dlPct"), detail: $("dlDetail"),
+    wrap: $("dlProgress"), status: $("dlStatus"), console: $("dlConsole"),
+    onDone: res => {
+      $("downloadBtn").disabled = false;
+      renderDlResults(res);
+      loadDestFolders();
+      loadFbFolders(folder);   // jump the Files browser to the new tracks
+      if (res.index_job) {
+        $("dlStatus").className = "status-msg";
+        $("dlStatus").textContent = "Indexing downloaded tracks into MixID…";
+        pollJob(res.index_job, {
+          fill: $("dlFill"), pct: $("dlPct"), detail: $("dlDetail"),
+          wrap: $("dlProgress"), status: $("dlStatus"),
+          onDone: ires => {
+            $("dlStatus").className = "status-msg ok";
+            $("dlStatus").textContent = `Indexed ${ires.indexed}/${ires.total} tracks into MixID.`;
+            loadLibrarySummary();
+          },
+        });
+      }
+    },
+    onError: () => { $("downloadBtn").disabled = false; },
+  });
+});
+
+function renderDlResults(res) {
+  $("dlResultsBox").style.display = "block";
+  $("dlResultHint").textContent =
+    `${res.downloaded.length} downloaded · ${res.skipped.length} skipped (already present) · ${res.failed.length} failed`;
+  const L = $("dlResults");
+  L.innerHTML = "";
+  const add = (name, cls, label) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<span class="name">${esc(name)}</span><span class="badge ${cls}">${label}</span>`;
+    L.appendChild(row);
+  };
+  res.downloaded.forEach(n => add(n, "ok", "downloaded"));
+  res.skipped.forEach(n => add(n, "", "skipped"));
+  res.failed.forEach(n => add(n, "warn", "failed"));
+}
+
+// ---- Files browser ----
+function fmtSize(b) {
+  return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB"
+                      : Math.max(1, Math.round(b / 1024)) + " KB";
+}
+
+async function loadFbFolders(selectName) {
+  const r = await fetch("/api/folders").then(r => r.json());
+  const sel = $("fbFolder");
+  const prev = selectName || sel.value;
+  sel.innerHTML = r.folders
+    .filter(f => !["mixid_app", "__pycache__", "logs"].includes(f.name))
+    .map(f => `<option value="${esc(f.name)}">${esc(f.name)} (${f.audio_count})</option>`)
+    .join("");
+  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+  loadFbFiles();
+}
+
+async function loadFbFiles() {
+  const folder = $("fbFolder").value;
+  const L = $("fbList");
+  L.innerHTML = "";
+  if (!folder) return;
+  const r = await fetch("/api/files?path=" + encodeURIComponent(folder)).then(r => r.json());
+  if (r.error) { $("fbStatus").textContent = r.error; return; }
+  $("fbStatus").textContent = "";
+  if (!r.files.length) {
+    L.innerHTML = `<div class="hint">No audio files in this folder yet.</div>`;
+    return;
+  }
+  for (const f of r.files) {
+    const rel = folder + "/" + f.name;
+    const displayName = f.name.replace(/\.[^.]+$/, "");
+    const row = document.createElement("div");
+    row.className = "track-row";
+
+    const pb = document.createElement("button");
+    pb.className = "play-btn";
+    pb.textContent = "▶";
+    pb.title = "Play";
+    pb.addEventListener("click", () => playTrack(rel, displayName, pb));
+
+    const label = document.createElement("span");
+    label.className = "tname";
+    label.textContent = f.name;
+
+    const size = document.createElement("span");
+    size.className = "meta";
+    size.style.cssText = "color:var(--muted);font-size:.75rem;white-space:nowrap";
+    size.textContent = fmtSize(f.size);
+
+    const dl = document.createElement("a");
+    dl.className = "play-btn";
+    dl.style.textDecoration = "none";
+    dl.textContent = "⬇";
+    dl.title = "Download to your computer";
+    dl.href = "/api/download?path=" + encodeURIComponent(rel);
+
+    row.appendChild(pb);
+    row.appendChild(label);
+    row.appendChild(size);
+    row.appendChild(dl);
+    L.appendChild(row);
+  }
+}
+
+$("fbFolder").addEventListener("change", loadFbFiles);
+$("fbRefresh").addEventListener("click", () => loadFbFolders());
+$("fbZip").addEventListener("click", () => {
+  const folder = $("fbFolder").value;
+  if (!folder) return;
+  $("fbStatus").textContent = "Building zip — the download starts when it's ready…";
+  setTimeout(() => { $("fbStatus").textContent = ""; }, 6000);
+  window.location.href = "/api/zip?path=" + encodeURIComponent(folder);
+});
+$("fbUploadBtn").addEventListener("click", () => $("fbUploadInput").click());
+$("fbUploadInput").addEventListener("change", async e => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  const folder = $("fbFolder").value;
+  if (!files.length || !folder) return;
+  $("fbStatus").textContent = `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`;
+  const fd = new FormData();
+  fd.append("folder", folder);
+  files.forEach(f => fd.append("tracks", f));
+  const r = await fetch("/api/upload-tracks", {method: "POST", body: fd}).then(r => r.json());
+  if (r.error) {
+    $("fbStatus").className = "status-msg err";
+    $("fbStatus").textContent = r.error;
+    return;
+  }
+  $("fbStatus").className = "status-msg ok";
+  $("fbStatus").textContent =
+    `Added ${r.saved.length} file${r.saved.length !== 1 ? "s" : ""}` +
+    (r.rejected.length ? ` — rejected (not audio): ${r.rejected.join(", ")}` : "");
+  loadFbFolders(folder);
+})
+
+async function loadCookieStatus() {
+  const r = await fetch("/api/cookies").then(r => r.json());
+  const sum = $("cookieSummary");
+  if (r.present) {
+    const stale = r.age_days > 14;
+    sum.innerHTML = `🍪 Cookies: <span style="color:var(--ok)">loaded</span> (${r.age_days} days old)` +
+      (stale ? ` — <span style="color:var(--warn)">getting stale, consider re-exporting</span>` : "");
+    $("cookieDeleteBtn").style.display = "inline-block";
+  } else {
+    sum.innerHTML = `🍪 Cookies: <span style="color:var(--warn)">none</span> — public tracks only (click to set up)`;
+    $("cookieDeleteBtn").style.display = "none";
+  }
+}
+
+$("openBrowserBtn").addEventListener("click", () => {
+  window.open("http://" + location.hostname + ":5800", "_blank");
+  $("cookieMsg").className = "status-msg";
+  $("cookieMsg").textContent = "Log in to SoundCloud in the new tab, then click Capture.";
+});
+$("captureBtn").addEventListener("click", async () => {
+  $("captureBtn").disabled = true;
+  $("cookieMsg").className = "status-msg";
+  $("cookieMsg").textContent = "Capturing…";
+  try {
+    const r = await fetch("/api/cookies/capture", {method: "POST"}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    const parts = Object.entries(r.counts).filter(([,n]) => n > 0)
+      .map(([d, n]) => `${d}: ${n}`);
+    $("cookieMsg").className = "status-msg ok";
+    $("cookieMsg").textContent = "Captured — " + parts.join(", ");
+    loadCookieStatus();
+  } catch (e) {
+    $("cookieMsg").className = "status-msg err";
+    $("cookieMsg").textContent = e.message;
+  } finally {
+    $("captureBtn").disabled = false;
+  }
+});
+
+$("cookieUploadBtn").addEventListener("click", () => $("cookieInput").click());
+$("cookieInput").addEventListener("change", async e => {
+  if (!e.target.files.length) return;
+  const fd = new FormData();
+  fd.append("cookies", e.target.files[0]);
+  e.target.value = "";
+  $("cookieMsg").className = "status-msg";
+  $("cookieMsg").textContent = "Uploading…";
+  const r = await fetch("/api/cookies", {method: "POST", body: fd}).then(r => r.json());
+  if (r.error) {
+    $("cookieMsg").className = "status-msg err";
+    $("cookieMsg").textContent = r.error;
+  } else {
+    $("cookieMsg").className = "status-msg ok";
+    $("cookieMsg").textContent = "Cookies saved.";
+    loadCookieStatus();
+  }
+});
+$("cookieDeleteBtn").addEventListener("click", async () => {
+  await fetch("/api/cookies", {method: "DELETE"});
+  $("cookieMsg").textContent = "";
+  loadCookieStatus();
+});
+
+// ---- init ----
+loadLibrarySummary();
+loadDestFolders();
+loadCookieStatus();
+loadFbFolders();
+loadReindexFolders();
+loadHistory();
+</script>
+</body>
+</html>

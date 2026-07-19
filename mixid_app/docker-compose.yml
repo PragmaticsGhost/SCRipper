@@ -1,0 +1,53 @@
+services:
+  scripper:
+    build: .
+    image: scripper-suite:latest
+    container_name: scripper-suite
+    ports:
+      # Bound to localhost only — this app is for personal use and must
+      # not be exposed publicly (it downloads with YOUR cookies).
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Match these to your host user id on Linux if you hit permission
+      # issues writing to the music folder (defaults suit Docker Desktop).
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    volumes:
+      # Music library root (read-write: downloads land here, folders here
+      # are browsable/indexable). Override with MUSIC_DIR in a .env file.
+      - ${MUSIC_DIR:-..}:/music
+      # Persistent audio fingerprint database
+      - panako-db:/home/scripper/.panako/dbs
+      # Scratch space for uploaded mixes
+      - mixid-uploads:/uploads
+      # Cookies uploaded via the GUI (or dumped by dump_cookies.py)
+      - ./cookies:/cookies
+      # Login-browser profile (read-only) — for one-click cookie capture
+      - firefox-profile:/browser-profile:ro
+      # Debug logfile (scripper.log), inspectable from the host
+      - ./logs:/logs
+    restart: unless-stopped
+
+  # In-container browser for logging into SoundCloud/YouTube.
+  # Users open it at http://localhost:5800, log in, then click
+  # "Capture cookies" in the SCRipper tab.
+  login-browser:
+    image: jlesage/firefox
+    container_name: scripper-login-browser
+    ports:
+      - "127.0.0.1:5800:5800"
+    volumes:
+      - firefox-profile:/config
+    environment:
+      - FF_OPEN_URL=https://soundcloud.com
+      # The login browser holds your live streaming session. It's bound to
+      # localhost, but set a password here to also block other local users
+      # from driving it. Leave unset for no password (single-user machines).
+      - VNC_PASSWORD=${LOGIN_BROWSER_PASSWORD:-}
+    shm_size: "1g"
+    restart: unless-stopped
+
+volumes:
+  panako-db:
+  mixid-uploads:
+  firefox-profile:

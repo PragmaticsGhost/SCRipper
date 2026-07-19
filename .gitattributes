@@ -1,0 +1,7 @@
+# Shell scripts run inside the Linux container — force LF so a Windows
+# clone (autocrlf) doesn't corrupt the shebang and break the container.
+*.sh text eol=lf
+mixid_app/entrypoint.sh text eol=lf
+
+# Windows batch stays CRLF.
+*.bat text eol=crlf

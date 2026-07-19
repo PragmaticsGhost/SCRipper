@@ -1,0 +1,4 @@
+# Browser cookies dumped by dump_cookies.py — credentials, never commit
+cookies/
+# Runtime debug logs
+logs/
