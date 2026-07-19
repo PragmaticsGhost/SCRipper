@@ -28,3 +28,9 @@ logs/
 *.asd
 soundcloud_cookies.txt
 .download_archive.txt
+
+# —— Legacy / experimental loose scripts (superseded by mixid_app) ——
+SCRipperDC.py
+SCRipper_Server.py
+SCRipper_Server.v2.py
+SCRipperv2.py
