@@ -1,0 +1,30 @@
+# —— Python ——
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# —— Runtime / logs ——
+logs/
+
+# —— Editor / tooling ——
+.claude/
+.idea/
+
+# —— Music: this repo keeps audio libraries and downloads next to the code;
+#    those are large binaries and shouldn't be version-controlled. Ignoring
+#    the audio (and its sidecars) makes the mix/download folders drop out of
+#    git status without enumerating each one. ——
+*.mp3
+*.m4a
+*.wav
+*.flac
+*.ogg
+*.oga
+*.aiff
+*.aif
+*.wma
+*.aac
+*.asd
+soundcloud_cookies.txt
+.download_archive.txt
