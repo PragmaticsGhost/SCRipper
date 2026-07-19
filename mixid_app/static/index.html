@@ -119,9 +119,10 @@
   .tl-row.unknown { border: 1px dashed #4a3a1c; background: rgba(251,191,36,.05); }
   .tl-row.unknown .title { color: var(--warn); font-style: italic; }
   .tl-row.unknown .ts { color: var(--warn); }
-  .tempo { font-size: .75rem; padding: 1px 8px; border-radius: 20px; white-space: nowrap; }
-  .tempo.up { color: var(--up); border: 1px solid #1c4a5e; }
-  .tempo.down { color: var(--down); border: 1px solid #5e3a1c; }
+  .tempo { font-size: .75rem; padding: 1px 8px; border-radius: 20px; white-space: nowrap;
+    color: var(--muted); border: 1px solid var(--border); }
+  .tempo.up { color: var(--up); border-color: #1c4a5e; }
+  .tempo.down { color: var(--down); border-color: #5e3a1c; }
   .result-head { display: flex; align-items: center; justify-content: space-between; }
   .result-head .count { color: var(--muted); font-size: .85rem; }
   .status-msg { font-size: .85rem; color: var(--muted); white-space: pre-wrap; }
@@ -152,6 +153,7 @@
     font-size: .7rem; color: var(--muted);
   }
   .wave-caption { font-size: .74rem; color: var(--accent-2); letter-spacing: .03em; }
+  .wave-cur { color: #ff8fe6; font-weight: 600; }
   /* —— Expandable library —— */
   .folder-row {
     display: flex; align-items: center; gap: 10px; cursor: pointer;
@@ -336,7 +338,7 @@
       <div class="wave-panel" id="mixWavePanel">
         <div class="wave-caption" id="mixWaveCaption">scanning…</div>
         <canvas class="wave-canvas" id="mixWave"></canvas>
-        <div class="wave-scale"><span>0:00</span><span id="mixWaveEnd"></span></div>
+        <div class="wave-scale"><span>0:00</span><span id="mixWaveCur" class="wave-cur"></span><span id="mixWaveEnd"></span></div>
       </div>
       <div class="status-msg" id="idStatus"></div>
       <div id="resultBox" style="display:none">
@@ -603,22 +605,36 @@ let mixSeekTo = 0;           // pending seek target after mix metadata loads
 
 function playMixSlice(startSec, btn) {
   if (!currentJobId) return;
+  const sliceKey = "__mix__@" + startSec;
+  // Same slice already loaded: toggle play/pause instead of restarting.
+  if (currentTrackPath === sliceKey) {
+    if (player.paused) player.play(); else player.pause();
+    return;
+  }
   setPlayingUI(currentPlayBtn, false);
   currentPlayBtn = btn || null;
-  currentTrackPath = "__mix__";
+  const wasMix = mixPlaying;
+  currentTrackPath = sliceKey;
   mixPlaying = true;
-  mixSeekTo = startSec;
-  player.src = "/api/mix-stream?job=" + encodeURIComponent(currentJobId);
   $("npLabel").innerHTML = `♪ mix — <b>from ${fmtTs(startSec)}</b>`;
   $("playerBar").classList.add("show");
   playerPeaks = mixWave;      // reuse the mix waveform in the player bar
   initAnalyser();
   startViz();
-  player.play();
+  if (wasMix && player.src) {
+    // Mix already loaded — just jump to the new slice, no re-download.
+    try { player.currentTime = startSec; } catch (_) {}
+    player.play();
+  } else {
+    mixSeekTo = startSec;
+    player.src = "/api/mix-stream?job=" + encodeURIComponent(currentJobId);
+    player.play();
+  }
 }
 
 function updateMixMarker() {
   if (!mixPlaying || !mixWave || !mixDur) return;
+  $("mixWaveCur").textContent = "▶ " + fmtTs(player.currentTime || 0);
   drawMixWaveform($("mixWave"), mixWave, {
     progress: 1, markers: mixLastMarkers || [],
     playFrac: player.currentTime / mixDur,
@@ -699,7 +715,12 @@ function playTrack(relPath, displayName, btn) {
     return;
   }
   setPlayingUI(currentPlayBtn, false);
-  mixPlaying = false;
+  if (mixPlaying) {
+    mixPlaying = false;
+    $("mixWaveCur").textContent = "";
+    if (mixWave) drawMixWaveform($("mixWave"), mixWave,
+      { progress: 1, markers: mixLastMarkers || [] });
+  }
   currentTrackPath = relPath;
   currentPlayBtn = btn;
   player.src = "/api/stream?path=" + encodeURIComponent(relPath);
@@ -964,7 +985,8 @@ $("playerClose").addEventListener("click", () => {
   currentTrackPath = null; currentPlayBtn = null;
   if (mixPlaying) {
     mixPlaying = false;
-    // clear the pink playback marker from the mix waveform
+    // clear the pink playback marker + time readout from the mix waveform
+    $("mixWaveCur").textContent = "";
     if (mixWave) drawMixWaveform($("mixWave"), mixWave,
       { progress: 1, markers: mixLastMarkers || [] });
   }
@@ -1160,6 +1182,7 @@ let viewOnly = false;   // true when a recalled history scan is displayed
 async function uploadMix(file) {
   $("resultBox").style.display = "none";
   $("mixWavePanel").classList.remove("show");
+  $("mixWaveCur").textContent = "";
   mixWave = null; mixDur = 0; viewOnly = false;
   $("idStatus").className = "status-msg";
   $("idStatus").textContent = `Uploading ${file.name} (${(file.size/1048576).toFixed(0)} MB)…`;
@@ -1336,9 +1359,16 @@ function renderTracklist(tl) {
       const row = document.createElement("div");
       row.className = "tl-row";
       let tempo = "";
-      if (Math.abs(t.tempo_pct) > 0.5) {
-        const cls = t.tempo_pct > 0 ? "up" : "down";
-        tempo = `<span class="tempo ${cls}">${t.tempo_pct > 0 ? "+" : ""}${t.tempo_pct}%</span>`;
+      const shifted = Math.abs(t.tempo_pct) > 0.5;
+      const cls = t.tempo_pct > 0 ? "up" : "down";
+      const pct = `${t.tempo_pct > 0 ? "+" : ""}${t.tempo_pct}%`;
+      if (t.bpm && shifted) {
+        // original BPM -> BPM it was actually played at in the mix
+        tempo = `<span class="tempo ${cls}">${t.bpm} → ${t.played_bpm} BPM · ${pct}</span>`;
+      } else if (t.bpm) {
+        tempo = `<span class="tempo">${t.bpm} BPM</span>`;
+      } else if (shifted) {
+        tempo = `<span class="tempo ${cls}">${pct}</span>`;
       }
       row.appendChild(slicePlayBtn(t));
       const rest = document.createElement("span");
@@ -1369,6 +1399,7 @@ $("clearBtn").addEventListener("click", async () => {
   }
   $("resultBox").style.display = "none";
   $("mixWavePanel").classList.remove("show");
+  $("mixWaveCur").textContent = "";
   $("tracklist").innerHTML = "";
   currentTracklist = []; lastTracklistText = "";
   mixWave = null; mixDur = 0; mixLastMarkers = null;
@@ -1429,6 +1460,7 @@ async function recallScan(id) {
       .map(t => ({ frac: Math.min(t.start / mixDur, 1), unidentified: t.unidentified }));
     $("mixWavePanel").classList.add("show");
     $("mixWaveCaption").textContent = `${rec.name || "mix"} (recalled — view only)`;
+    $("mixWaveCur").textContent = "";
     if (mixDur) $("mixWaveEnd").textContent = fmtTs(mixDur);
     drawMixWaveform($("mixWave"), mixWave, { progress: 1, markers: mixLastMarkers });
   } else {
