@@ -1,0 +1,10 @@
+.git
+.gitignore
+cookies
+logs
+__pycache__
+*.py[cod]
+.pytest_cache
+README.md
+requirements*.txt
+setup.bat

@@ -74,6 +74,10 @@
     transition: filter .15s;
   }
   button:hover { filter: brightness(1.15); }
+  button:focus-visible, [role="button"]:focus-visible, [role="slider"]:focus-visible,
+  [role="tab"]:focus-visible {
+    outline: 2px solid var(--accent-2); outline-offset: 3px;
+  }
   button:disabled { filter: grayscale(.8) brightness(.7); cursor: default; }
   button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
   button.ghost:hover { color: var(--text); border-color: var(--muted); }
@@ -109,7 +113,23 @@
   @keyframes slide { 0% {margin-left:0} 50% {margin-left:70%} 100% {margin-left:0} }
   .progress-label { font-size: .8rem; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; }
   .progress-label span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tracklist { display: flex; flex-direction: column; gap: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: .88rem; }
+  .cancel-job {
+    align-self: flex-end; margin-top: 2px;
+    background: transparent; border: 1px solid #7f1d1d; color: var(--err);
+    border-radius: 8px; padding: 4px 12px; font-size: .78rem; white-space: nowrap;
+  }
+  .cancel-job:hover:not(:disabled) {
+    background: rgba(248,113,113,.12); border-color: var(--err);
+    box-shadow: 0 0 8px rgba(248,113,113,.3); filter: none;
+  }
+  .cancel-job:disabled { opacity: .6; cursor: default; }
+  /* Scrollable, and capped so the list stays above the player + 3D
+     visualizer at the default scroll position (reserving ~260px at the
+     bottom for them). Scroll the page to see rows over the waveform. */
+  .tracklist { display: flex; flex-direction: column; gap: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: .88rem;
+    max-height: max(160px, calc(100vh - 660px)); overflow-y: auto; padding-right: 4px; }
+  .keychip { font-size: .75rem; padding: 1px 8px; border-radius: 20px; white-space: nowrap;
+    color: #c9a7ff; border: 1px solid #3d2a5e; }
   .tl-row {
     display: flex; align-items: center; gap: 12px;
     padding: 7px 12px; border-radius: 8px; background: var(--panel-2);
@@ -128,6 +148,7 @@
   .status-msg { font-size: .85rem; color: var(--muted); white-space: pre-wrap; }
   .status-msg.err { color: var(--err); }
   .status-msg.ok { color: var(--ok); }
+  .warning-text { color: var(--warn); }
   .field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
   .field label { min-width: 0; }
   details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
@@ -180,8 +201,6 @@
   }
   /* —— Player bar —— */
   body { padding-bottom: 96px; }
-  /* While the player + visualizer occupy the bottom, add room so the last
-     tracklist rows can scroll fully above them. */
   body.playing { padding-bottom: 220px; }
   .play-btn {
     flex: none; width: 26px; height: 26px; border-radius: 50%;
@@ -257,6 +276,15 @@
   .tl-row.named .ts { color: var(--accent-2); }
   .manual-tag { font-size: .68rem; color: var(--muted); border: 1px solid var(--border);
     border-radius: 20px; padding: 1px 7px; white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    #vizWrap { display: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -265,14 +293,17 @@
   <span>download &middot; fingerprint &middot; identify</span>
 </header>
 
-<div class="tabs">
-  <button class="tab active" data-tab="mixid">MixID</button>
-  <button class="tab" data-tab="scripper">SCRipper</button>
+<div class="tabs" role="tablist" aria-label="Application sections">
+  <button class="tab active" id="tab-mixid" data-tab="mixid" role="tab"
+          aria-controls="page-mixid" aria-selected="true">MixID</button>
+  <button class="tab" id="tab-scripper" data-tab="scripper" role="tab"
+          aria-controls="page-scripper" aria-selected="false" tabindex="-1">SCRipper</button>
 </div>
 
 <main>
   <!-- ================= MIXID TAB ================= -->
-  <div class="tab-page active" id="page-mixid">
+  <div class="tab-page active" id="page-mixid" role="tabpanel"
+       aria-labelledby="tab-mixid">
     <section class="card">
       <h2>Library</h2>
       <div class="hint" id="libSummary">Loading…</div>
@@ -290,7 +321,7 @@
           <span id="folderConfirmMsg"></span>
         </div>
         <div class="field">
-          <label>Save as folder:</label>
+          <label for="folderDestName">Save as folder:</label>
           <input type="text" id="folderDestName" style="width:180px">
           <button id="folderConfirmGo">Upload &amp; index</button>
           <button class="ghost" id="folderConfirmCancel">Cancel</button>
@@ -298,7 +329,7 @@
       </div>
 
       <div class="field">
-        <label>Or re-index an existing folder:</label>
+        <label for="reindexSel">Or re-index an existing folder:</label>
         <select id="reindexSel"></select>
         <button class="ghost" id="reindexGo">Index</button>
       </div>
@@ -306,8 +337,9 @@
       <div class="progress-wrap" id="indexProgress" style="display:none">
         <div class="progress-label"><span id="indexDetail"></span><span id="indexPct"></span></div>
         <div class="progress-bar"><div class="progress-fill" id="indexFill"></div></div>
+        <button class="cancel-job" type="button">Stop indexing</button>
       </div>
-      <div class="status-msg" id="indexStatus"></div>
+      <div class="status-msg" id="indexStatus" role="status" aria-live="polite"></div>
 
       <details>
         <summary>Past scans</summary>
@@ -321,26 +353,28 @@
 
     <section class="card">
       <h2>Identify Mix</h2>
-      <div class="drop" id="drop">
+      <div class="drop" id="drop" role="button" tabindex="0"
+           aria-controls="fileInput" aria-label="Choose a mix recording to identify">
         <strong>Drop a mix recording here</strong><br>
         or click to browse — wav, mp3, m4a, flac<br>
         <input type="file" id="fileInput" accept=".wav,.mp3,.m4a,.flac,.ogg,.aiff" hidden>
       </div>
       <div class="field">
-        <label>Min matched segments per track:</label>
+        <label for="minSeg">Min matched segments per track:</label>
         <input type="number" id="minSeg" value="2" min="1" max="10" style="width:56px">
         <span>(lower = more sensitive)</span>
       </div>
       <div class="progress-wrap" id="idProgress" style="display:none">
         <div class="progress-label"><span id="idDetail"></span><span id="idPct"></span></div>
         <div class="progress-bar"><div class="progress-fill" id="idFill"></div></div>
+        <button class="cancel-job" type="button">Stop scanning</button>
       </div>
       <div class="wave-panel" id="mixWavePanel">
         <div class="wave-caption" id="mixWaveCaption">scanning…</div>
         <canvas class="wave-canvas" id="mixWave"></canvas>
         <div class="wave-scale"><span>0:00</span><span id="mixWaveCur" class="wave-cur"></span><span id="mixWaveEnd"></span></div>
       </div>
-      <div class="status-msg" id="idStatus"></div>
+      <div class="status-msg" id="idStatus" role="status" aria-live="polite"></div>
       <div id="resultBox" style="display:none">
         <div class="result-head">
           <span class="count" id="resultCount"></span>
@@ -355,7 +389,8 @@
   </div>
 
   <!-- ================= SCRIPPER TAB ================= -->
-  <div class="tab-page" id="page-scripper">
+  <div class="tab-page" id="page-scripper" role="tabpanel"
+       aria-labelledby="tab-scripper" hidden>
     <section class="card">
       <h2>Download Tracks</h2>
       <div class="hint">Paste SoundCloud / YouTube URLs — single tracks or playlists, separated by commas or new lines.</div>
@@ -371,9 +406,12 @@
           <div class="field">
             <button id="openBrowserBtn">1. Open login browser</button>
             <button id="captureBtn">2. Capture cookies</button>
+            <button class="ghost" id="closeBrowserBtn" style="display:none">Close login browser</button>
             <button class="ghost" id="cookieDeleteBtn" style="display:none">Remove cookies</button>
-            <span class="status-msg" id="cookieMsg"></span>
+            <span class="status-msg" id="cookieMsg" role="status" aria-live="polite"></span>
           </div>
+          <div class="hint">The login browser only runs while you're using
+            it — it starts when you open it and stops after you capture.</div>
           <details>
             <summary>Manual alternative: upload a cookies.txt export</summary>
             <div class="field" style="margin-top:8px">
@@ -384,14 +422,15 @@
           </details>
         </div>
       </details>
+      <label for="urlInput" class="hint">Track or playlist URLs</label>
       <textarea id="urlInput" placeholder="https://soundcloud.com/artist/track&#10;https://soundcloud.com/artist/sets/playlist"></textarea>
       <div class="field">
         <button id="resolveBtn">Check URLs</button>
-        <span class="status-msg" id="resolveStatus"></span>
+        <span class="status-msg" id="resolveStatus" role="status" aria-live="polite"></span>
       </div>
       <div class="listing" id="resolveList"></div>
       <div class="field" id="destRow" style="display:none">
-        <label>Save to:</label>
+        <label for="destSel">Save to:</label>
         <select id="destSel"></select>
         <input type="text" id="destNew" placeholder="new folder name" style="display:none; width:160px">
         <label><input type="checkbox" id="indexAfter" checked> Index into MixID after download</label>
@@ -403,9 +442,10 @@
       <div class="progress-wrap" id="dlProgress" style="display:none">
         <div class="progress-label"><span id="dlDetail"></span><span id="dlPct"></span></div>
         <div class="progress-bar"><div class="progress-fill" id="dlFill"></div></div>
+        <button class="cancel-job" type="button">Stop downloading</button>
       </div>
-      <div class="console" id="dlConsole" style="display:none"></div>
-      <div class="status-msg" id="dlStatus"></div>
+      <div class="console" id="dlConsole" style="display:none" role="log" aria-live="polite"></div>
+      <div class="status-msg" id="dlStatus" role="status" aria-live="polite"></div>
       <details id="dlResultsBox" style="display:none">
         <summary id="dlResultHint"></summary>
         <div class="listing" id="dlResults" style="margin-top:8px"></div>
@@ -416,7 +456,7 @@
       <h2>Files</h2>
       <div class="field">
         <select id="fbFolder"></select>
-        <button class="ghost" id="fbRefresh" title="Refresh">↻</button>
+        <button class="ghost" id="fbRefresh" title="Refresh" aria-label="Refresh files">↻</button>
       </div>
       <div class="field">
         <button id="fbZip">⬇ Download folder (.zip)</button>
@@ -430,19 +470,21 @@
         the selected folder so they can be indexed and played.
       </div>
       <div class="listing" id="fbList"></div>
-      <div class="status-msg" id="fbStatus"></div>
+      <div class="status-msg" id="fbStatus" role="status" aria-live="polite"></div>
     </section>
   </div>
 </main>
 
 <div id="vizWrap"><canvas id="viz3d"></canvas></div>
 <div id="playerBar">
-  <button id="ppBtn" class="play-btn pp-big" title="Play/Pause">▶</button>
+  <button id="ppBtn" class="play-btn pp-big" title="Play/Pause" aria-label="Play or pause">▶</button>
   <span class="np" id="npLabel">—</span>
-  <canvas id="playerWave" class="player-wave"></canvas>
+  <canvas id="playerWave" class="player-wave" role="slider" tabindex="0"
+          aria-label="Track position" aria-valuemin="0" aria-valuenow="0"></canvas>
   <span class="ptime" id="pTime">0:00 / 0:00</span>
-  <input type="range" id="pVol" min="0" max="1" step="0.05" value="1" title="Volume">
-  <button id="playerClose" class="stop-btn" title="Stop">⏹</button>
+  <input type="range" id="pVol" min="0" max="1" step="0.05" value="1"
+         title="Volume" aria-label="Volume">
+  <button id="playerClose" class="stop-btn" title="Stop" aria-label="Stop playback">⏹</button>
   <audio id="player" preload="none"></audio>
 </div>
 
@@ -450,6 +492,7 @@
 const $ = id => document.getElementById(id);
 let lastTracklistText = "";
 let resolvedItems = [];
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 function fmtTs(sec) {
   sec = Math.floor(sec);
@@ -458,6 +501,15 @@ function fmtTs(sec) {
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+function setSelectOptions(select, options) {
+  select.replaceChildren();
+  for (const {value, label} of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+}
 
 // ---- Waveform rendering ----
 function prepCanvas(canvas) {
@@ -541,12 +593,32 @@ function drawThumb(canvas, peaks) {
 }
 
 // ---- Tabs ----
-document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-  document.querySelectorAll(".tab-page").forEach(x => x.classList.remove("active"));
-  t.classList.add("active");
-  $("page-" + t.dataset.tab).classList.add("active");
-}));
+function activateTab(t, moveFocus = false) {
+  document.querySelectorAll(".tab").forEach(x => {
+    const selected = x === t;
+    x.classList.toggle("active", selected);
+    x.setAttribute("aria-selected", String(selected));
+    x.tabIndex = selected ? 0 : -1;
+  });
+  document.querySelectorAll(".tab-page").forEach(x => {
+    const selected = x.id === "page-" + t.dataset.tab;
+    x.classList.toggle("active", selected);
+    x.hidden = !selected;
+  });
+  if (moveFocus) t.focus();
+}
+const tabs = [...document.querySelectorAll(".tab")];
+tabs.forEach((t, index) => {
+  t.addEventListener("click", () => activateTab(t));
+  t.addEventListener("keydown", event => {
+    let next = null;
+    if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+    if (event.key === "ArrowLeft") next = tabs[(index - 1 + tabs.length) % tabs.length];
+    if (event.key === "Home") next = tabs[0];
+    if (event.key === "End") next = tabs[tabs.length - 1];
+    if (next) { event.preventDefault(); activateTab(next, true); }
+  });
+});
 
 // ---- Job polling (shared) ----
 function renderConsole(el, j) {
@@ -563,33 +635,93 @@ function renderConsole(el, j) {
 }
 
 function pollJob(jid, ui) {
+  if (ui.wrap._pollCancel) ui.wrap._pollCancel();
+  const controller = new AbortController();
+  let timer = null, finished = false, failures = 0;
+  const cancel = () => {
+    if (finished) return;
+    finished = true;
+    controller.abort();
+    if (timer) clearTimeout(timer);
+  };
+  ui.wrap._pollCancel = cancel;
   ui.wrap.style.display = "flex";
   ui.fill.classList.add("indeterminate");
   if (ui.console) { ui.console.style.display = "none"; ui.console.innerHTML = ""; }
-  const iv = setInterval(async () => {
-    const j = await fetch("/api/job/" + jid).then(r => r.json());
-    ui.detail.textContent = j.status === "queued" ? "Waiting for previous job…" : (j.detail || j.label);
-    if (j.progress != null) {
-      ui.fill.classList.remove("indeterminate");
-      ui.fill.style.width = (j.progress * 100).toFixed(1) + "%";
-      ui.pct.textContent = (j.progress * 100).toFixed(0) + "%";
-    }
-    if (ui.console) renderConsole(ui.console, j);
-    if (ui.onPoll) ui.onPoll(j);
-    if (j.status === "done") {
-      clearInterval(iv);
-      ui.wrap.style.display = "none";
-      ui.fill.style.width = "0%"; ui.pct.textContent = "";
-      if (ui.console) renderConsole(ui.console, j);
-      ui.onDone(j.result);
-    } else if (j.status === "error") {
-      clearInterval(iv);
-      ui.wrap.style.display = "none";
+  // Wire the Stop button (if this progress bar has one) to cancel the job.
+  const cancelBtn = ui.wrap.querySelector(".cancel-job");
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = cancelBtn.dataset.label || cancelBtn.textContent;
+    cancelBtn.dataset.label = cancelBtn.textContent;
+    cancelBtn.onclick = async () => {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = "Stopping…";
+      try { await fetch("/api/job/" + jid + "/cancel", {method: "POST"}); } catch (_) {}
+    };
+  }
+  const finish = (kind, value) => {
+    if (finished) return;
+    finished = true;
+    if (timer) clearTimeout(timer);
+    if (ui.wrap._pollCancel === cancel) ui.wrap._pollCancel = null;
+    ui.wrap.style.display = "none";
+    ui.fill.style.width = "0%"; ui.pct.textContent = "";
+    if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = cancelBtn.dataset.label; }
+    if (kind === "done") {
+      ui.onDone(value);
+    } else if (kind === "cancelled") {
+      ui.status.className = "status-msg";
+      ui.status.textContent = "Stopped.";
+      if (ui.onCancel) ui.onCancel(value);
+    } else {
       ui.status.className = "status-msg err";
-      ui.status.textContent = "Error: " + j.error;
-      if (ui.onError) ui.onError(j.error);
+      ui.status.textContent = "Error: " + value;
+      if (ui.onError) ui.onError(value);
     }
-  }, 1200);
+  };
+  const poll = async () => {
+    if (finished) return;
+    try {
+      const response = await fetch("/api/job/" + jid, {signal: controller.signal});
+      const j = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 404) throw new Error("Job is no longer available; the app may have restarted.");
+        throw new Error(j.error || `Job request failed (HTTP ${response.status})`);
+      }
+      failures = 0;
+      ui.detail.textContent = j.status === "queued" ? "Waiting for previous job…" : (j.detail || j.label);
+      if (j.progress != null) {
+        ui.fill.classList.remove("indeterminate");
+        ui.fill.style.width = (j.progress * 100).toFixed(1) + "%";
+        ui.pct.textContent = (j.progress * 100).toFixed(0) + "%";
+      }
+      if (ui.console) renderConsole(ui.console, j);
+      if (ui.onPoll) ui.onPoll(j);
+      if (j.status === "done") {
+        if (ui.console) renderConsole(ui.console, j);
+        finish("done", j.result);
+      } else if (j.status === "cancelled") {
+        if (ui.console) renderConsole(ui.console, j);
+        finish("cancelled", j.result);
+      } else if (j.status === "error") {
+        finish("error", j.error || "Job failed");
+      } else {
+        timer = setTimeout(poll, 1200);
+      }
+    } catch (error) {
+      if (finished || error.name === "AbortError") return;
+      failures++;
+      if (failures >= 5 || /no longer available/.test(error.message)) {
+        finish("error", error.message);
+        return;
+      }
+      ui.detail.textContent = `Connection interrupted; retrying (${failures}/5)…`;
+      timer = setTimeout(poll, Math.min(10000, 1200 * (2 ** failures)));
+    }
+  };
+  poll();
+  return cancel;
 }
 
 // ============================================================
@@ -693,6 +825,9 @@ function updatePTime() {
   const cur = player.currentTime || 0;
   const dur = player.duration || 0;
   $("pTime").textContent = `${fmtTs(cur)} / ${dur ? fmtTs(dur) : "0:00"}`;
+  $("playerWave").setAttribute("aria-valuemax", String(Math.round(dur)));
+  $("playerWave").setAttribute("aria-valuenow", String(Math.round(cur)));
+  $("playerWave").setAttribute("aria-valuetext", `${fmtTs(cur)} of ${fmtTs(dur)}`);
 }
 
 async function loadPlayerWave(relPath) {
@@ -892,6 +1027,7 @@ function vizLoop() {
 }
 
 function startViz() {
+  if (reducedMotion.matches) return;
   $("vizWrap").classList.add("show");
   document.body.classList.add("playing");
   if (actx && actx.state === "suspended") actx.resume();
@@ -904,6 +1040,10 @@ function stopViz() {
   $("vizWrap").classList.remove("show");
   document.body.classList.remove("playing");
 }
+reducedMotion.addEventListener("change", event => {
+  if (event.matches) { stopViz(); stopWaveLoop(); }
+  else if (!player.paused) { waveLoop(); startViz(); }
+});
 
 // Click / drag on the waveform to seek
 const pwCanvas = $("playerWave");
@@ -925,6 +1065,16 @@ pwCanvas.addEventListener("pointerdown", e => {
 pwCanvas.addEventListener("pointermove", e => { if (scrubbing) seekFromPointer(e); });
 pwCanvas.addEventListener("pointerup", () => { scrubbing = false; });
 pwCanvas.addEventListener("pointercancel", () => { scrubbing = false; });
+pwCanvas.addEventListener("keydown", event => {
+  if (!player.duration || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  if (event.key === "Home") player.currentTime = 0;
+  else if (event.key === "End") player.currentTime = player.duration;
+  else player.currentTime = Math.min(
+    player.duration, Math.max(0, player.currentTime + (event.key === "ArrowRight" ? 5 : -5)),
+  );
+  drawPlayerWave(); updatePTime();
+});
 
 $("ppBtn").addEventListener("click", () => {
   if (!player.src) return;
@@ -945,7 +1095,8 @@ function stopWaveLoop() {
 player.addEventListener("play", () => {
   setPlayingUI(currentPlayBtn, true);
   $("ppBtn").textContent = "⏸"; $("ppBtn").classList.add("playing");
-  stopWaveLoop(); waveLoop();
+  stopWaveLoop();
+  if (!reducedMotion.matches) waveLoop();
   startViz();
 });
 player.addEventListener("pause", () => {
@@ -953,7 +1104,7 @@ player.addEventListener("pause", () => {
   $("ppBtn").textContent = "▶"; $("ppBtn").classList.remove("playing");
   stopWaveLoop();
   // Hand the live front line off into the fading trail (no pop on pause).
-  if (analyser) captureVizRow();
+  if (analyser && !reducedMotion.matches) captureVizRow();
 });
 player.addEventListener("ended", () => {
   setPlayingUI(currentPlayBtn, false);
@@ -1015,7 +1166,8 @@ function pumpThumbs() {
 
 async function loadLibrarySummary() {
   const r = await fetch("/api/library").then(r => r.json());
-  $("libSummary").innerHTML = `<b>${r.total}</b> tracks fingerprinted across <b>${r.folders.length}</b> folders`;
+  $("libSummary").innerHTML = `<b>${r.total}</b> tracks fingerprinted across <b>${r.folders.length}</b> folders` +
+    (r.stale ? ` <span class="warning-text">&middot; ${r.stale} changed; re-index required</span>` : "");
   const L = $("libList");
   L.innerHTML = "";
   if (!r.folders.length) { L.innerHTML = `<div class="hint">Nothing indexed yet.</div>`; return; }
@@ -1024,6 +1176,9 @@ async function loadLibrarySummary() {
 
     const row = document.createElement("div");
     row.className = "folder-row";
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    row.setAttribute("aria-expanded", "false");
     row.innerHTML = `<span class="chev">▶</span>` +
       `<span class="name">📁 ${esc(f.name)}</span>` +
       `<span class="meta">${f.tracks.length} tracks</span>`;
@@ -1032,9 +1187,10 @@ async function loadLibrarySummary() {
     tracksBox.className = "folder-tracks";
     let built = false;
 
-    row.addEventListener("click", () => {
+    const toggleFolder = () => {
       const open = tracksBox.classList.toggle("open");
       row.classList.toggle("open", open);
+      row.setAttribute("aria-expanded", String(open));
       if (open && !built) {
         built = true;
         for (const t of f.tracks) {
@@ -1046,6 +1202,7 @@ async function loadLibrarySummary() {
           pb.className = "play-btn";
           pb.textContent = "▶";
           pb.title = "Play";
+          pb.setAttribute("aria-label", `Play ${displayName}`);
           pb.addEventListener("click", e => {
             e.stopPropagation();
             playTrack(rel, displayName, pb);
@@ -1065,6 +1222,12 @@ async function loadLibrarySummary() {
           // which can be paused on background tabs).
           enqueueThumb(cv);
         }
+      }
+    };
+    row.addEventListener("click", toggleFolder);
+    row.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault(); toggleFolder();
       }
     });
 
@@ -1114,9 +1277,17 @@ $("folderConfirmGo").addEventListener("click", async () => {
   try {
     const r = await fetch("/api/upload-tracks", {method: "POST", body: fd}).then(r => r.json());
     if (r.error) throw new Error(r.error);
+    const conflictNote = r.conflicts.length
+      ? `Skipped ${r.conflicts.length} existing file${r.conflicts.length !== 1 ? "s" : ""}: ${r.conflicts.join(", ")}`
+      : "";
+    if (!r.saved.length) {
+      $("indexStatus").className = "status-msg err";
+      $("indexStatus").textContent = conflictNote || "No supported audio files were uploaded.";
+      return;
+    }
     $("indexStatus").textContent =
       `Uploaded ${r.saved.length} files — indexing…`;
-    startIndex(dest);
+    startIndex(dest, conflictNote);
   } catch (err) {
     $("indexStatus").className = "status-msg err";
     $("indexStatus").textContent = "Upload failed: " + err.message;
@@ -1126,17 +1297,17 @@ $("folderConfirmGo").addEventListener("click", async () => {
 // Re-index a folder already in the library.
 async function loadReindexFolders() {
   const r = await fetch("/api/folders").then(r => r.json());
-  $("reindexSel").innerHTML = r.folders
+  const options = r.folders
     .filter(f => !["mixid_app", "__pycache__", "logs"].includes(f.name) && f.audio_count)
-    .map(f => `<option value="${esc(f.name)}">${esc(f.name)} (${f.audio_count})</option>`)
-    .join("");
+    .map(f => ({value: f.name, label: `${f.name} (${f.audio_count})`}));
+  setSelectOptions($("reindexSel"), options);
 }
 $("reindexGo").addEventListener("click", () => {
   const f = $("reindexSel").value;
   if (f) startIndex(f);
 });
 
-async function startIndex(path) {
+async function startIndex(path, notice = "") {
   $("indexStatus").className = "status-msg";
   $("indexStatus").textContent = "";
   const r = await fetch("/api/index", {
@@ -1149,7 +1320,9 @@ async function startIndex(path) {
     wrap: $("indexProgress"), status: $("indexStatus"),
     onDone: res => {
       $("indexStatus").className = "status-msg ok";
-      let msg = `Indexed ${res.indexed}/${res.total} tracks`;
+      let msg = notice ? notice + "\n" : "";
+      if (res.rebuilt) msg += "Library changes detected; rebuilt the full fingerprint index.\n";
+      msg += `Indexed ${res.indexed}/${res.total} tracks`;
       if (res.duplicates && res.duplicates.length) {
         msg += `\nSkipped ${res.duplicates.length} duplicate` +
           (res.duplicates.length > 1 ? "s" : "") + ": " +
@@ -1160,12 +1333,25 @@ async function startIndex(path) {
       loadLibrarySummary();
       loadReindexFolders();
     },
+    onCancel: res => {
+      const n = (res && res.indexed) || 0;
+      $("indexStatus").className = "status-msg";
+      $("indexStatus").textContent =
+        `Indexing stopped (${n} indexed). The library may need a re-index to be complete.`;
+      loadLibrarySummary();
+      loadReindexFolders();
+    },
   });
 }
 
 // ---- Identify ----
 const drop = $("drop");
 drop.addEventListener("click", () => $("fileInput").click());
+drop.addEventListener("keydown", event => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault(); $("fileInput").click();
+  }
+});
 drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("over"));
 drop.addEventListener("drop", e => {
@@ -1223,6 +1409,15 @@ async function uploadMix(file) {
       renderTracklist(res.tracklist);
       loadHistory();
     },
+    onCancel: () => {
+      // Scan stopped: the mix was discarded server-side; drop the partial UI.
+      $("mixWavePanel").classList.remove("show");
+      $("resultBox").style.display = "none";
+      mixWave = null; mixDur = 0; mixLastMarkers = null;
+      currentJobId = null; currentScanId = null;
+      $("idStatus").className = "status-msg";
+      $("idStatus").textContent = "Scan stopped.";
+    },
   });
 }
 
@@ -1262,17 +1457,15 @@ function rebuildTracklistText() {
 let currentScanId = null;   // history id of the displayed scan (fresh or recalled)
 
 // A ▶ that plays the retained mix from this slice's start.
+// Returns null for recalled scans (no audio) — callers skip the button.
 function slicePlayBtn(t) {
+  if (viewOnly || !currentJobId) return null;
   const pb = document.createElement("button");
   pb.className = "play-btn";
   pb.textContent = "▶";
-  if (viewOnly || !currentJobId) {
-    pb.disabled = true;
-    pb.title = "Mix audio not available for recalled scans";
-  } else {
-    pb.title = `Play mix from ${fmtTs(t.start)}`;
-    pb.addEventListener("click", () => playMixSlice(t.start, pb));
-  }
+  pb.title = `Play mix from ${fmtTs(t.start)}`;
+  pb.setAttribute("aria-label", pb.title);
+  pb.addEventListener("click", () => playMixSlice(t.start, pb));
   return pb;
 }
 
@@ -1292,6 +1485,7 @@ function makeUnidentifiedRow(t) {
   const edit = document.createElement("button");
   edit.className = "edit-btn";
   edit.title = named ? "Edit name" : "Name this track";
+  edit.setAttribute("aria-label", edit.title);
   edit.textContent = "✎";
 
   const startEdit = () => {
@@ -1327,7 +1521,8 @@ function makeUnidentifiedRow(t) {
   edit.addEventListener("click", startEdit);
   if (!named) title.addEventListener("click", startEdit);
 
-  row.appendChild(slicePlayBtn(t));
+  const pb = slicePlayBtn(t);
+  if (pb) row.appendChild(pb);
   row.appendChild(ts);
   row.appendChild(title);
   if (named) {
@@ -1370,7 +1565,9 @@ function renderTracklist(tl) {
       } else if (shifted) {
         tempo = `<span class="tempo ${cls}">${pct}</span>`;
       }
-      row.appendChild(slicePlayBtn(t));
+      if (t.key) tempo = `<span class="keychip">${esc(t.key)}</span>` + tempo;
+      const pb = slicePlayBtn(t);
+      if (pb) row.appendChild(pb);
       const rest = document.createElement("span");
       rest.style.cssText = "display:flex; align-items:center; gap:12px; flex:1; min-width:0";
       rest.innerHTML = `<span class="ts">${fmtTs(t.start)}</span><span class="title">${esc(t.title)}</span>${tempo}`;
@@ -1420,10 +1617,11 @@ async function loadHistory() {
     const row = document.createElement("div");
     row.className = "row";
     const when = it.date ? new Date(it.date * 1000).toLocaleString() : "";
-    const label = document.createElement("span");
-    label.className = "name";
+    const label = document.createElement("button");
+    label.className = "name ghost";
     label.style.cursor = "pointer";
     label.title = "View this scan";
+    label.style.textAlign = "left";
     label.textContent = it.name || "(mix)";
     label.addEventListener("click", () => recallScan(it.id));
     const meta = document.createElement("span");
@@ -1433,6 +1631,7 @@ async function loadHistory() {
     del.className = "play-btn";
     del.textContent = "✕";
     del.title = "Delete this scan";
+    del.setAttribute("aria-label", `Delete scan ${it.name || "mix"}`);
     del.addEventListener("click", async e => {
       e.stopPropagation();
       await fetch("/api/history/" + encodeURIComponent(it.id), {method: "DELETE"});
@@ -1476,10 +1675,11 @@ async function recallScan(id) {
 async function loadDestFolders() {
   const r = await fetch("/api/folders").then(r => r.json());
   const sel = $("destSel");
-  sel.innerHTML = r.folders
+  const options = r.folders
     .filter(f => !["mixid_app", "__pycache__", "logs"].includes(f.name))
-    .map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join("") +
-    `<option value="__new__">+ New folder…</option>`;
+    .map(f => ({value: f.name, label: f.name}));
+  options.push({value: "__new__", label: "+ New folder…"});
+  setSelectOptions(sel, options);
 }
 $("destSel").addEventListener("change", () => {
   $("destNew").style.display = $("destSel").value === "__new__" ? "inline-block" : "none";
@@ -1576,8 +1776,25 @@ $("downloadBtn").addEventListener("click", async () => {
             $("dlStatus").textContent = `Indexed ${ires.indexed}/${ires.total} tracks into MixID.`;
             loadLibrarySummary();
           },
+          onCancel: () => {
+            $("dlStatus").className = "status-msg";
+            $("dlStatus").textContent = "Indexing stopped; the library may need a re-index.";
+            loadLibrarySummary();
+          },
         });
+      } else if (res.index_error) {
+        $("dlStatus").className = "status-msg err";
+        $("dlStatus").textContent = res.index_error;
       }
+    },
+    onCancel: res => {
+      $("downloadBtn").disabled = false;
+      if (res) renderDlResults(res);
+      loadDestFolders();
+      loadFbFolders(folder);
+      $("dlStatus").className = "status-msg";
+      const n = (res && res.downloaded && res.downloaded.length) || 0;
+      $("dlStatus").textContent = `Downloads stopped (${n} completed).`;
     },
     onError: () => { $("downloadBtn").disabled = false; },
   });
@@ -1610,10 +1827,10 @@ async function loadFbFolders(selectName) {
   const r = await fetch("/api/folders").then(r => r.json());
   const sel = $("fbFolder");
   const prev = selectName || sel.value;
-  sel.innerHTML = r.folders
+  const options = r.folders
     .filter(f => !["mixid_app", "__pycache__", "logs"].includes(f.name))
-    .map(f => `<option value="${esc(f.name)}">${esc(f.name)} (${f.audio_count})</option>`)
-    .join("");
+    .map(f => ({value: f.name, label: `${f.name} (${f.audio_count})`}));
+  setSelectOptions(sel, options);
   if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
   loadFbFiles();
 }
@@ -1640,6 +1857,7 @@ async function loadFbFiles() {
     pb.className = "play-btn";
     pb.textContent = "▶";
     pb.title = "Play";
+    pb.setAttribute("aria-label", `Play ${f.name}`);
     pb.addEventListener("click", () => playTrack(rel, displayName, pb));
 
     const label = document.createElement("span");
@@ -1656,6 +1874,7 @@ async function loadFbFiles() {
     dl.style.textDecoration = "none";
     dl.textContent = "⬇";
     dl.title = "Download to your computer";
+    dl.setAttribute("aria-label", `Download ${f.name}`);
     dl.href = "/api/download?path=" + encodeURIComponent(rel);
 
     row.appendChild(pb);
@@ -1694,6 +1913,7 @@ $("fbUploadInput").addEventListener("change", async e => {
   $("fbStatus").className = "status-msg ok";
   $("fbStatus").textContent =
     `Added ${r.saved.length} file${r.saved.length !== 1 ? "s" : ""}` +
+    (r.conflicts.length ? ` - kept existing: ${r.conflicts.join(", ")}` : "") +
     (r.rejected.length ? ` — rejected (not audio): ${r.rejected.join(", ")}` : "");
   loadFbFolders(folder);
 })
@@ -1712,11 +1932,56 @@ async function loadCookieStatus() {
   }
 }
 
-$("openBrowserBtn").addEventListener("click", () => {
-  window.open("http://" + location.hostname + ":5800", "_blank");
+// Poll a URL (cross-origin, no-cors) until it responds or times out.
+function waitReachable(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise(resolve => {
+    (function poll() {
+      fetch(url, {mode: "no-cors", cache: "no-store"})
+        .then(() => resolve(true))
+        .catch(() => Date.now() > deadline ? resolve(false) : setTimeout(poll, 1500));
+    })();
+  });
+}
+
+$("openBrowserBtn").addEventListener("click", async () => {
+  // Reserve the tab during the click's transient user activation. Navigating
+  // it after Docker starts is allowed even when startup takes a long time.
+  const browserTab = window.open("about:blank", "scripper-login-browser");
+  const btn = $("openBrowserBtn");
+  btn.disabled = true;
   $("cookieMsg").className = "status-msg";
-  $("cookieMsg").textContent = "Log in to SoundCloud in the new tab, then click Capture.";
+  $("cookieMsg").textContent = "Starting login browser…";
+  try {
+    const r = await fetch("/api/login-browser/start", {method: "POST"}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    $("cookieMsg").textContent = "Waiting for the browser to come up…";
+    const url = "http://" + location.hostname + ":5800/";
+    const ok = await waitReachable(url, 90000);   // first run may pull the image
+    if (!ok) throw new Error("The login browser didn't come up. Try again.");
+    if (browserTab && !browserTab.closed) {
+      browserTab.location.href = url;
+    } else {
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Open the login browser";
+      $("cookieMsg").replaceChildren(link);
+    }
+    $("closeBrowserBtn").style.display = "inline-block";
+    if (browserTab && !browserTab.closed) {
+      $("cookieMsg").textContent = "Log in to SoundCloud in the new tab, then click Capture.";
+    }
+  } catch (e) {
+    if (browserTab && !browserTab.closed) browserTab.close();
+    $("cookieMsg").className = "status-msg err";
+    $("cookieMsg").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
 });
+
 $("captureBtn").addEventListener("click", async () => {
   $("captureBtn").disabled = true;
   $("cookieMsg").className = "status-msg";
@@ -1726,14 +1991,30 @@ $("captureBtn").addEventListener("click", async () => {
     if (r.error) throw new Error(r.error);
     const parts = Object.entries(r.counts).filter(([,n]) => n > 0)
       .map(([d, n]) => `${d}: ${n}`);
-    $("cookieMsg").className = "status-msg ok";
-    $("cookieMsg").textContent = "Captured — " + parts.join(", ");
+    $("cookieMsg").className = r.browser_stop_error ? "status-msg err" : "status-msg ok";
+    $("cookieMsg").textContent = "Captured — " + parts.join(", ") +
+      (r.browser_stopped ? " (login browser stopped)" : "") +
+      (r.browser_stop_error ? " Warning: " + r.browser_stop_error : "");
+    $("closeBrowserBtn").style.display = r.browser_stop_error ? "inline-block" : "none";
     loadCookieStatus();
   } catch (e) {
     $("cookieMsg").className = "status-msg err";
     $("cookieMsg").textContent = e.message;
   } finally {
     $("captureBtn").disabled = false;
+  }
+});
+
+$("closeBrowserBtn").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/login-browser/stop", {method: "POST"}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    $("closeBrowserBtn").style.display = "none";
+    $("cookieMsg").className = "status-msg";
+    $("cookieMsg").textContent = "Login browser stopped.";
+  } catch (e) {
+    $("cookieMsg").className = "status-msg err";
+    $("cookieMsg").textContent = "Could not stop login browser: " + e.message;
   }
 });
 

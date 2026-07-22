@@ -12,6 +12,8 @@ services:
       # issues writing to the music folder (defaults suit Docker Desktop).
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      # Internal fixed-purpose service; the app itself has no Docker access.
+      - BROWSER_CONTROLLER_URL=http://browser-controller:8090
     volumes:
       # Music library root (read-write: downloads land here, folders here
       # are browsable/indexable). Override with MUSIC_DIR in a .env file.
@@ -26,28 +28,41 @@ services:
       - firefox-profile:/browser-profile:ro
       # Debug logfile (scripper.log), inspectable from the host
       - ./logs:/logs
+    depends_on:
+      browser-controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health', timeout=2).read()"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 5
     restart: unless-stopped
 
-  # In-container browser for logging into SoundCloud/YouTube.
-  # Users open it at http://localhost:5800, log in, then click
-  # "Capture cookies" in the SCRipper tab.
-  login-browser:
-    image: jlesage/firefox
-    container_name: scripper-login-browser
-    ports:
-      - "127.0.0.1:5800:5800"
-    volumes:
-      - firefox-profile:/config
+  # The only component with Docker socket access. It accepts fixed
+  # start/stop/status operations for the login browser and no Docker args
+  # from the web app, keeping media-processing code away from host control.
+  browser-controller:
+    build:
+      context: .
+      dockerfile: browser-controller.Dockerfile
+    image: scripper-browser-controller:latest
+    container_name: scripper-browser-controller
     environment:
-      - FF_OPEN_URL=https://soundcloud.com
-      # The login browser holds your live streaming session. It's bound to
-      # localhost, but set a password here to also block other local users
-      # from driving it. Leave unset for no password (single-user machines).
-      - VNC_PASSWORD=${LOGIN_BROWSER_PASSWORD:-}
-    shm_size: "1g"
+      - LOGIN_BROWSER_PASSWORD=${LOGIN_BROWSER_PASSWORD:-}
+      - LOGIN_BROWSER_IMAGE=jlesage/firefox@sha256:2bdbe30e355028eabb8a3a6f50a35a5d729e1de2376bc9c3c27c55fd2a7443d9
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 volumes:
   panako-db:
   mixid-uploads:
   firefox-profile:
+    # Explicit name so the app can mount it into the login browser it spawns.
+    name: scripper-firefox-profile

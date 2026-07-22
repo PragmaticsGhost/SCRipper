@@ -87,8 +87,10 @@ folder, set `PUID`/`PGID` to your own ids so the container writes as you. On
 3. Pick a destination folder (or create a new one), optionally tick
    **Index into MixID after download**, and hit **Download**.
 
-Downloads are 320kbps MP3 with title/artist/cover-art tags, run 3 at a
-time, and skip anything already present (a per-folder download archive).
+Downloads are 320kbps MP3 with title/artist/cover-art tags and run 3 at a
+time. Completed files are promoted atomically: an existing track is never
+overwritten, and an unexpected name collision gets a numbered filename.
+A per-folder download archive also avoids fetching known URLs again.
 A live console shows per-file progress; failures are reported in plain
 language (deleted track, region-locked, rate-limited, needs cookies, etc.).
 
@@ -100,7 +102,8 @@ You never need to touch the container or project folders directly:
 - **⬇ Download** a single file, or **⬇ Download folder (.zip)** — straight
   to your browser's Downloads folder.
 - **⬆ Add tracks…** — upload your own audio files into a folder so they can
-  be indexed and played.
+  be indexed and played. Existing filenames are preserved rather than
+  overwritten; conflicts are reported in the UI.
 
 ### Cookies (optional — for private / Go+ tracks)
 
@@ -108,23 +111,25 @@ Without cookies, only publicly available tracks can be downloaded. To use
 your own account session, use the built-in login browser — no extensions,
 no manual exports:
 
-1. In the 🍪 Cookies section, click **Open login browser** — a real Firefox
-   running inside the container opens in a new tab (it starts on
-   soundcloud.com).
+1. In the 🍪 Cookies section, click **Open login browser** — the app starts
+   a real Firefox (in a throwaway container) on demand and opens it in a new
+   tab (it starts on soundcloud.com).
 2. Log in normally. Your password goes directly to soundcloud.com — the app
    never sees it. Visit youtube.com too if you want YouTube cookies.
-3. Back in the app, click **Capture cookies**.
+3. Back in the app, click **Capture cookies**. The login browser is
+   **shut down automatically** once cookies are captured.
 
-Cookies stay on your machine in `mixid_app/cookies/` (gitignored) and can be
-removed anytime with one click. Re-capture when downloads start failing —
-sessions expire.
+The login browser only runs while you're using it — no 24/7 ~500MB
+container. You can also close it manually with the **Close login browser**
+button. Cookies stay on your machine in `mixid_app/cookies/` (gitignored)
+and can be removed anytime with one click. Re-capture when downloads start
+failing — sessions expire.
 
 Tips:
 - If you sign in to SoundCloud with Google SSO, Google can be picky about
   unfamiliar browsers — the direct email login is smoother.
-- The login browser uses ~500MB RAM while running. After capturing you can
-  stop it with `docker compose stop login-browser`; captured cookies keep
-  working, and `docker compose up -d` brings it back.
+- The very first "Open login browser" may take a bit longer while Docker
+  pulls the Firefox image; after that it starts in a couple of seconds.
 
 Alternatives: upload a `cookies.txt` export (Netscape format, e.g. from the
 "Get cookies.txt LOCALLY" extension) in the same 🍪 section, or — for Chrome
@@ -187,11 +192,20 @@ blue→pink gradient.
 - Both the app (`8080`) and the login browser (`5800`) bind to `127.0.0.1`
   only — not reachable from other machines.
 - The app rejects requests with a non-localhost `Host` header (blocks
-  DNS-rebinding from sites you visit).
+  DNS-rebinding from sites you visit) and rejects browser requests that
+  declare a different `Origin`, `Referer`, or fetch site.
 - The container drops to an unprivileged user for all work (yt-dlp, ffmpeg,
   Panako).
 - Captured cookies are written owner-only (`0600`) and gitignored — treat
   `cookies/cookies.txt` as a password.
+- **Docker isolation:** the media-processing app has no Docker socket or
+  Docker CLI. A separate, minimal `browser-controller` service owns the
+  socket and exposes only fixed start/stop/status operations for the login
+  browser; it accepts no Docker arguments from the web app. It labels the
+  container it creates and refuses to stop or replace a same-named container
+  without that ownership label. The controller is still a host-trusted
+  component because it owns the socket, so it has no published port and
+  should remain on the private Compose network.
 
 If your machine has **other local users** you don't fully trust, set
 `LOGIN_BROWSER_PASSWORD` in `.env` so they can't drive the login browser
@@ -202,13 +216,81 @@ has no user authentication and downloads with your session.
 
 ---
 
+## Operations and development
+
+The container serves Flask through Gunicorn with one process and a threaded
+worker. The single process is intentional because job queues and retained job
+state are in memory; the threads allow health checks and API requests to remain
+responsive while work is running.
+
+For implementation-level documentation, see the complete session
+[engineering changelog](CHANGELOG.md) and the current-state
+[engineering guide](ENGINEERING_GUIDE.md).
+
+- `GET /api/health` is a lightweight liveness check.
+- `GET /api/ready` checks worker threads, writable storage, and Panako.
+- Compose and the Docker image use the liveness endpoint for health checks.
+
+Run the same quality gate used for a release from PowerShell:
+
+```powershell
+.\scripts\ci.ps1
+```
+
+Or from a POSIX shell:
+
+```bash
+sh scripts/ci.sh
+```
+
+The gate validates Compose configuration, checks both Dockerfiles, builds and
+runs the dedicated test image (Ruff plus the regression and native-audio smoke
+tests), and then builds the deployable images. The deployable image is
+multi-stage: compilers, Git, headers, and the full JDK stay in the native build
+stage and are not shipped in production.
+
+The application is organized around small service modules: configuration and
+application state, bounded job queues, metadata storage, downloads, route
+registration, atomic JSON persistence, runtime cleanup, and worker lifecycle.
+`app.py` remains the orchestration and request-handler layer.
+
 ## Notes
 
 - The fingerprint database and scan history live in a Docker volume
   (`panako-db`) and survive container rebuilds. `docker volume rm` it to
   start fresh.
-- Jobs (indexing, identifying, downloading) run one at a time by design —
-  the fingerprint store is single-writer.
+- The fingerprint manifest records file size and modification time. If an
+  indexed file is changed or deleted outside the app, identification is
+  paused until the next index job safely rebuilds the Panako database. The
+  first index after upgrading an older path-only manifest also rebuilds it.
+  An unreadable manifest is preserved with an `.invalid-*` suffix and forces
+  a full-library rebuild rather than being mistaken for an empty library.
+- Panako indexing and identification share one serialized worker because the
+  fingerprint store is single-writer. Downloads and metadata analysis use
+  separate workers, and identification processes have a duration-based
+  end-to-end deadline so either kind of work cannot wedge the other
+  indefinitely. Job queues and request collections are bounded; excess work
+  receives a busy or validation response instead of growing memory without
+  limit.
+- BPM, key, and duration analysis is cached by library-relative path plus file
+  size and modification time. Duplicate filenames in different folders no
+  longer collide, and replacing a file automatically invalidates its analysis.
+  Identification reads cached metadata only and warms missing entries in the
+  background, keeping expensive analysis off the Panako worker's critical path.
+- Container base images, native source revisions, and Python packages are
+  pinned to immutable versions and hashes for reproducible builds. The Gradle
+  wrapper distribution is checksum-verified as well. Upgrade these pins
+  deliberately and run the quality gate before rebuilding.
+- History, waveform, and metadata JSON files are replaced atomically. Corrupt
+  state is quarantined with an `.invalid-*` suffix instead of being silently
+  overwritten. Startup cleanup removes stale upload/download scratch data and
+  bounds the waveform cache without following paths outside the configured
+  scratch roots.
+- Tabs, drop zones, folder rows, media controls, and waveforms support keyboard
+  navigation and accessible labels. Motion-heavy visualizers and animations
+  are disabled when the browser requests reduced motion.
+- Finished job details are retained for up to 24 hours, capped at the 100 most
+  recent jobs; active jobs are never pruned.
 - A rotating debug log is written to `mixid_app/logs/scripper.log`
   (gitignored).
 - Respect the terms of service of the platforms you download from and the

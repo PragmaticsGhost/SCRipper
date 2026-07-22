@@ -13,9 +13,10 @@ encrypted with your Windows user account and can only be read here:
 Re-run whenever downloads start failing with auth errors (cookies expire).
 The container picks up the new file immediately — no restart needed.
 """
+
+import argparse
 import os
 import sys
-import argparse
 from http.cookiejar import MozillaCookieJar
 
 try:
@@ -27,10 +28,10 @@ except ImportError:
 COOKIE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies")
 COOKIE_FILE = os.path.join(COOKIE_DIR, "cookies.txt")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Dump browser cookies for the SCRipper container")
-    parser.add_argument("--youtube", action="store_true",
-                        help="Also include youtube.com cookies")
+    parser.add_argument("--youtube", action="store_true", help="Also include youtube.com cookies")
     args = parser.parse_args()
 
     domains = ["soundcloud.com"]
@@ -50,6 +51,7 @@ def main():
     cj.save(ignore_discard=True, ignore_expires=True)
     print(f"Wrote {total} cookies ({', '.join(domains)}) to {COOKIE_FILE}")
     print("The container will use them automatically on the next download.")
+
 
 if __name__ == "__main__":
     main()

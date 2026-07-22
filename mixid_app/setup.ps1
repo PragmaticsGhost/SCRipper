@@ -1,4 +1,4 @@
-# SCRipper Suite — one-shot Windows setup.
+# SCRipper Suite - one-shot Windows setup.
 # Checks/install Docker Desktop, starts the engine, builds & starts the
 # app, then opens http://localhost:8080 in your browser.
 $ErrorActionPreference = "Stop"
@@ -36,7 +36,7 @@ if (-not (Test-DockerEngine)) {
     if (Test-Path $dd) {
         Start-Process $dd
     } else {
-        Write-Host "Could not find Docker Desktop.exe — start it manually, then press Enter."
+        Write-Host "Could not find Docker Desktop.exe - start it manually, then press Enter."
         Read-Host | Out-Null
     }
     Write-Host "Waiting for the Docker engine (this can take a minute)..."
@@ -61,7 +61,7 @@ Write-Host "later runs start in seconds."
 Write-Host ""
 docker compose up -d --build
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "docker compose failed — scroll up for the error." -ForegroundColor Red
+    Write-Host "docker compose failed - scroll up for the error." -ForegroundColor Red
     exit 1
 }
 
@@ -70,7 +70,7 @@ Write-Host "Waiting for the app to come up..."
 $healthy = $false
 for ($i = 0; $i -lt 40; $i++) {
     try {
-        $r = Invoke-WebRequest -Uri "http://localhost:8080/api/library" -UseBasicParsing -TimeoutSec 3
+        $r = Invoke-WebRequest -Uri "http://localhost:8080/api/health" -UseBasicParsing -TimeoutSec 3
         if ($r.StatusCode -eq 200) { $healthy = $true; break }
     } catch {}
     Start-Sleep -Seconds 3

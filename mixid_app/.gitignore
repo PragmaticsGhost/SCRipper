@@ -2,3 +2,7 @@
 cookies/
 # Runtime debug logs
 logs/
+# Python test/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
