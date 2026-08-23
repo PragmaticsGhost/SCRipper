@@ -6,6 +6,7 @@ ROUTE_DEFINITIONS = (
     ("/", ("GET",), "index"),
     ("/api/job/<jid>", ("GET",), "api_job"),
     ("/api/job/<jid>/cancel", ("POST",), "api_cancel_job"),
+    ("/api/jobs/active", ("GET",), "api_active_jobs"),
     ("/api/health", ("GET",), "api_health"),
     ("/api/ready", ("GET",), "api_ready"),
     ("/api/login-browser/start", ("POST",), "api_login_browser_start"),

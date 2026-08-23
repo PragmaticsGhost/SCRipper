@@ -31,7 +31,12 @@ from runtime_hygiene import cleanup_runtime_artifacts, prune_files
 from safe_download import promote_unique, safe_mp3_name
 from safe_upload import copy_exclusive
 from state_storage import atomic_write_json, load_json
-from track_identity import analysis_cache_key, resolve_library_path
+from track_identity import (
+    analysis_cache_key,
+    build_resolution_index,
+    resolve_library_path,
+    resolve_with_index,
+)
 from waveform import WaveformLimitError, aggregate_pcm, validate_waveform_request
 from worker_runtime import WorkerRuntime
 
@@ -481,6 +486,40 @@ class TrackIdentityTests(unittest.TestCase):
 
             self.assertEqual(os.path.realpath(second), resolve_library_path(str(second), paths))
             self.assertIsNone(resolve_library_path("track.mp3", paths))
+
+    def test_prebuilt_index_matches_direct_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp, "a", "track.mp3")
+            second = Path(tmp, "b", "track.mp3")
+            unique = Path(tmp, "a", "solo.mp3")
+            first.parent.mkdir()
+            second.parent.mkdir()
+            for target in (first, second, unique):
+                target.write_bytes(b"audio")
+            paths = [str(first), str(second), str(unique)]
+            index = build_resolution_index(paths)
+
+            # Full paths resolve exactly; a unique basename still resolves;
+            # an ambiguous basename stays unresolved rather than guessing.
+            self.assertEqual(os.path.realpath(second), resolve_with_index(str(second), index))
+            self.assertEqual(os.path.realpath(unique), resolve_with_index("solo.mp3", index))
+            self.assertIsNone(resolve_with_index("track.mp3", index))
+            self.assertIsNone(resolve_with_index("", index))
+
+    def test_index_is_built_once_for_many_lookups(self):
+        """Resolution must not re-walk the library per reference: that made
+        one identification spend minutes in realpath() calls."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp, "track.mp3")
+            target.write_bytes(b"audio")
+            paths = [str(target)]
+            index = build_resolution_index(paths)
+            with mock.patch("track_identity.os.path.realpath", wraps=os.path.realpath) as spy:
+                for _ in range(25):
+                    resolve_with_index(str(target), index)
+                # One realpath per lookup (the reference itself), never one
+                # per library file.
+                self.assertEqual(25, spy.call_count)
 
     def test_analysis_key_changes_with_path_and_file_signature(self):
         with tempfile.TemporaryDirectory() as tmp:

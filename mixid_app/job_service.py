@@ -114,6 +114,36 @@ class JobService:
         event = self.cancels.get(job_id)
         return bool(event and event.is_set())
 
+    def active_ids_of_type(self, job_type):
+        """IDs of queued/running jobs of a given type (newest last)."""
+        with self.lock:
+            return [
+                jid
+                for jid, job in self.jobs.items()
+                if job.get("type") == job_type and job.get("status") not in TERMINAL_STATUSES
+            ]
+
+    def active_jobs(self):
+        """Summaries of all queued/running jobs, oldest first, for the UI
+        so a user can see and kill anything that hangs."""
+        now = time.time()
+        with self.lock:
+            active = [
+                {
+                    "id": jid,
+                    "type": job.get("type"),
+                    "label": job.get("label"),
+                    "status": job.get("status"),
+                    "progress": job.get("progress"),
+                    "detail": job.get("detail"),
+                    "age": now - (job.get("created_at") or now),
+                }
+                for jid, job in self.jobs.items()
+                if job.get("status") not in TERMINAL_STATUSES
+            ]
+        active.sort(key=lambda j: j["age"], reverse=True)
+        return active
+
     def register_process(self, job_id, proc):
         """Track a live subprocess so a cancel can terminate it at once."""
         with self.lock:

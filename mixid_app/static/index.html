@@ -341,6 +341,14 @@
       </div>
       <div class="status-msg" id="indexStatus" role="status" aria-live="polite"></div>
 
+      <div id="activeJobsBox" style="display:none">
+        <div class="field" style="justify-content:space-between">
+          <b id="activeJobsTitle" style="color:var(--warn)">Active jobs</b>
+          <button class="cancel-job" id="stopAllJobs" type="button">Stop all</button>
+        </div>
+        <div class="listing" id="activeJobsList"></div>
+      </div>
+
       <details>
         <summary>Past scans</summary>
         <div class="listing" id="historyList" style="margin-top:8px"></div>
@@ -369,6 +377,7 @@
         <div class="progress-bar"><div class="progress-fill" id="idFill"></div></div>
         <button class="cancel-job" type="button">Stop scanning</button>
       </div>
+      <div class="console" id="idConsole" style="display:none"></div>
       <div class="wave-panel" id="mixWavePanel">
         <div class="wave-caption" id="mixWaveCaption">scanning…</div>
         <canvas class="wave-canvas" id="mixWave"></canvas>
@@ -1382,7 +1391,7 @@ async function uploadMix(file) {
   $("idStatus").textContent = "";
   pollJob(r.job, {
     fill: $("idFill"), pct: $("idPct"), detail: $("idDetail"),
-    wrap: $("idProgress"), status: $("idStatus"),
+    wrap: $("idProgress"), status: $("idStatus"), console: $("idConsole"),
     onPoll: j => {
       if (j.waveform && j.waveform.length) {
         mixWave = j.waveform;
@@ -1406,11 +1415,13 @@ async function uploadMix(file) {
         $("mixWaveCaption").textContent = "scan complete";
         drawMixWaveform($("mixWave"), mixWave, { progress: 1, markers });
       }
+      $("idConsole").style.display = "none";
       renderTracklist(res.tracklist);
       loadHistory();
     },
     onCancel: () => {
       // Scan stopped: the mix was discarded server-side; drop the partial UI.
+      $("idConsole").style.display = "none";
       $("mixWavePanel").classList.remove("show");
       $("resultBox").style.display = "none";
       mixWave = null; mixDur = 0; mixLastMarkers = null;
@@ -1603,6 +1614,62 @@ $("clearBtn").addEventListener("click", async () => {
   currentJobId = null; currentScanId = null; viewOnly = false;
   loadHistory();
 });
+
+// ---- Active jobs (visibility + kill switch for anything that hangs) ----
+const JOB_TYPE_LABEL = { identify: "Scan", index: "Index", download: "Download",
+                         name_section: "Name section" };
+
+async function loadActiveJobs() {
+  let jobs = [];
+  try {
+    jobs = (await fetch("/api/jobs/active").then(r => r.json())).jobs || [];
+  } catch (_) { return; }
+  const box = $("activeJobsBox"), list = $("activeJobsList");
+  box.style.display = jobs.length ? "block" : "none";
+  $("activeJobsTitle").textContent = `Active jobs (${jobs.length})`;
+  list.innerHTML = "";
+  for (const j of jobs) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const kind = JOB_TYPE_LABEL[j.type] || j.type;
+    const pct = j.progress != null ? ` · ${(j.progress * 100).toFixed(0)}%` : "";
+    const age = j.age >= 60 ? `${Math.floor(j.age / 60)}m` : `${Math.floor(j.age)}s`;
+    const label = document.createElement("span");
+    label.className = "name";
+    label.title = j.detail || "";
+    label.innerHTML = `<b>${esc(kind)}</b> — ${esc(j.label || "")}`;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `${j.status}${pct} · ${age}`;
+    const stop = document.createElement("button");
+    stop.className = "cancel-job";
+    stop.textContent = "Stop";
+    stop.addEventListener("click", async () => {
+      stop.disabled = true; stop.textContent = "Stopping…";
+      try { await fetch("/api/job/" + encodeURIComponent(j.id) + "/cancel", {method: "POST"}); } catch (_) {}
+      loadActiveJobs();
+    });
+    row.appendChild(label);
+    row.appendChild(meta);
+    row.appendChild(stop);
+    list.appendChild(row);
+  }
+}
+
+$("stopAllJobs").addEventListener("click", async () => {
+  const btn = $("stopAllJobs");
+  btn.disabled = true; btn.textContent = "Stopping…";
+  try {
+    const jobs = (await fetch("/api/jobs/active").then(r => r.json())).jobs || [];
+    await Promise.all(jobs.map(j =>
+      fetch("/api/job/" + encodeURIComponent(j.id) + "/cancel", {method: "POST"}).catch(() => {})));
+  } catch (_) {}
+  btn.disabled = false; btn.textContent = "Stop all";
+  loadActiveJobs();
+});
+
+// Keep the active-jobs panel current so hung jobs are always visible.
+setInterval(loadActiveJobs, 3000);
 
 // ---- Past scans (history) ----
 async function loadHistory() {
@@ -2049,6 +2116,7 @@ loadCookieStatus();
 loadFbFolders();
 loadReindexFolders();
 loadHistory();
+loadActiveJobs();
 </script>
 </body>
 </html>

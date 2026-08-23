@@ -80,7 +80,7 @@ from runtime_hygiene import cleanup_runtime_artifacts
 from safe_download import promote_unique, safe_mp3_name
 from safe_upload import copy_exclusive
 from state_storage import atomic_write_json, load_json
-from track_identity import analysis_cache_key, resolve_library_path
+from track_identity import analysis_cache_key, build_resolution_index, resolve_with_index
 from waveform import (
     WaveformLimitError,
     aggregate_pcm,
@@ -186,9 +186,58 @@ def manifest_add(path):
         save_manifest(m)
 
 
+_manifest_files_cache = {"sig": object(), "value": frozenset()}
+_library_index_cache = {"sig": object(), "value": None}
+_library_index_lock = threading.Lock()
+
+
+def _manifest_signature():
+    """Cheap signature of the manifest file itself (one stat)."""
+    try:
+        st = os.stat(MANIFEST_PATH)
+        return (st.st_size, st.st_mtime_ns)
+    except OSError:
+        return None
+
+
 def manifest_files():
+    # current_manifest_files() os.stat()s every indexed file to prove it is
+    # current, which is slow on a Docker Desktop bind mount (~0.7s for a
+    # large library). During one scan the manifest itself never changes, so
+    # cache the result keyed on the manifest file's own signature: the burst
+    # of per-track lookups in collapse_matches then costs one stat sweep, not
+    # dozens. Any manifest write (indexing) changes the signature and
+    # invalidates the cache automatically.
+    sig = _manifest_signature()
     with _manifest_lock:
-        return current_manifest_files(load_manifest())
+        cache = _manifest_files_cache
+        if sig is not None and cache["sig"] == sig:
+            return cache["value"]
+        value = current_manifest_files(load_manifest())
+        cache["sig"] = sig
+        cache["value"] = value
+        return value
+
+
+def library_resolution_index():
+    """Memoized realpath/basename index used to resolve Panako references.
+
+    Building it walks the whole library once; resolving against it is a
+    dict lookup. Without this, one identification spends minutes repeating
+    the same realpath sweep for every matched track.
+    """
+    sig = _manifest_signature()
+    with _library_index_lock:
+        cache = _library_index_cache
+        if sig is not None and cache["sig"] == sig and cache["value"] is not None:
+            return cache["value"]
+    # Build outside the lock: manifest_files() takes a different lock, and a
+    # duplicate concurrent build is harmless.
+    index = build_resolution_index(manifest_files())
+    with _library_index_lock:
+        _library_index_cache["sig"] = sig
+        _library_index_cache["value"] = index
+    return index
 
 
 def manifest_stale_paths():
@@ -463,7 +512,7 @@ _metadata_stores = MetadataStores(DB_DIR, logger)
 
 
 def _library_path(reference):
-    return resolve_library_path(reference, manifest_files())
+    return resolve_with_index(reference, library_resolution_index())
 
 
 def _analysis_target(reference):
@@ -1132,6 +1181,16 @@ def do_index(jid, folder):
     _finish("done")
 
 
+def _fmt_clock(seconds):
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return "0:00"
+    m, s = divmod(max(0, seconds), 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def do_identify(jid, mix_path, min_segments, mix_name=None):
     stale = manifest_stale_paths()
     if stale:
@@ -1190,8 +1249,33 @@ def do_identify(jid, mix_path, min_segments, mix_name=None):
     )
     _job_service.register_process(jid, proc)
     matches = []
+    seen_tracks = set()
     cancelled = False
     timeout = max(1, deadline - time.monotonic())
+    # Heartbeat: keep an elapsed-time detail ticking so the final-segment
+    # tail (Panako finishing after its last output line) never looks frozen.
+    scan_active = threading.Event()
+    scan_active.set()
+    scan_started = time.monotonic()
+    scan_pos = [0.0]
+
+    def _heartbeat():
+        while scan_active.is_set():
+            time.sleep(1.0)
+            if not scan_active.is_set():
+                break
+            elapsed = int(time.monotonic() - scan_started)
+            n = len(seen_tracks)
+            update_job(
+                jid,
+                detail=(
+                    f"Scanning {_fmt_clock(scan_pos[0])} / {_fmt_clock(duration)}"
+                    f" · {n} track{'' if n == 1 else 's'} found · {elapsed}s"
+                ),
+            )
+
+    hb = threading.Thread(target=_heartbeat, name="scan-heartbeat", daemon=True)
+    hb.start()
     try:
         for line in iter_lines_with_deadline(proc, timeout):
             if is_cancelled(jid):
@@ -1201,9 +1285,15 @@ def do_identify(jid, mix_path, min_segments, mix_name=None):
             parsed = parse_monitor_line(line)
             if parsed and parsed != "nomatch":
                 matches.append(parsed)
+                ref = parsed.get("match_path") or parsed["match_name"]
+                name = os.path.splitext(os.path.basename(ref))[0]
+                if name not in seen_tracks:
+                    seen_tracks.add(name)
+                    job_log(jid, f"♪ {_fmt_clock(parsed.get('query_start', 0))} — {name}")
             seg = re.search(r"-([\d.]+)_[\d.]+ ", line)
             if seg and duration:
-                update_job(jid, progress=min(float(seg.group(1)) / duration, 1.0))
+                scan_pos[0] = float(seg.group(1))
+                update_job(jid, progress=min(scan_pos[0] / duration, 1.0))
     except ProcessDeadlineExceeded:
         logger.error("identify timed out after %.0fs: %s", timeout, os.path.basename(mix_path))
         update_job(
@@ -1218,6 +1308,7 @@ def do_identify(jid, mix_path, min_segments, mix_name=None):
         discard_mix(jid, mix_path)
         raise
     finally:
+        scan_active.clear()
         _job_service.clear_process(jid, proc)
         if proc.stdout:
             proc.stdout.close()
@@ -1240,6 +1331,7 @@ def do_identify(jid, mix_path, min_segments, mix_name=None):
         )
         discard_mix(jid, mix_path)
         return
+    update_job(jid, progress=1.0, detail="Building tracklist…")
     tracklist = collapse_matches(
         matches,
         min_segments,
@@ -1478,6 +1570,10 @@ def api_cancel_job(jid):
     if not accepted:
         return jsonify({"cancelled": False, "reason": "already finished"}), 409
     return jsonify({"cancelled": True})
+
+
+def api_active_jobs():
+    return jsonify({"jobs": _job_service.active_jobs()})
 
 
 def api_health():
@@ -1806,6 +1902,14 @@ def api_identify():
     except (TypeError, ValueError):
         min_segments = 2
     min_segments = max(1, min(min_segments, 20))
+    # A new scan supersedes any earlier one still running or queued (e.g. a
+    # scan left behind when the page was closed), so it never blocks forever
+    # on "Waiting for previous job". Only the latest mix is kept anyway.
+    superseded = _job_service.active_ids_of_type("identify")
+    for old in superseded:
+        _job_service.request_cancel(old)
+    if superseded:
+        logger.info(f"superseding {len(superseded)} prior scan(s) for a new one")
     safe_name = re.sub(r"[^\w .()\[\]&-]", "_", os.path.basename(f.filename))
     dest = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex[:8]}_{safe_name}")
     f.save(dest)
