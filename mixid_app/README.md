@@ -18,42 +18,87 @@ A personal-use, self-hosted web app for DJs, with two tabs:
 
 ---
 
-## Setup
+## First start
 
-### Windows (easiest — one script)
+### Windows (easiest)
 
-1. Download or clone this repo.
-2. Open the `mixid_app` folder and **double-click `setup.bat`**.
+You do not need to install Python, FFmpeg, or Panako yourself.
 
-The script (`setup.bat` → `setup.ps1`) does everything for you:
+1. Get the project:
+   - On GitHub, select **Code → Download ZIP**, then use **Extract All**. Do
+     not run setup from inside the ZIP preview.
+   - Or run `git clone https://github.com/PragmaticsGhost/SCRipper.git`.
+2. Open the project folder (`SCRipper-main` from a ZIP download or `SCRipper`
+   from Git), then open **mixid_app**.
+3. Double-click **setup.bat**.
 
-- Installs **Docker Desktop** if it isn't present (via `winget`).
-- Starts the Docker engine and waits for it to be ready.
-- Builds the app and starts it (`docker compose up -d --build`).
-- Waits until the app is live, then opens **http://localhost:8080**.
+The script offers to install **Docker Desktop** if needed, starts Docker,
+builds the app, waits until it is live, and opens
+[http://localhost:8080](http://localhost:8080).
 
-The **first build takes ~10 minutes** because it compiles the Panako
-fingerprinting engine from source; later starts take seconds. Just re-run
-`setup.bat` any time you want to start the app — it's safe to run
-repeatedly.
+If Docker Desktop was just installed, Windows may require a sign-out or
+restart. Do that, then double-click `setup.bat` again.
 
-> If Windows had to install Docker Desktop fresh, it may require a
-> sign-out or restart before the engine works. The script detects this and
-> tells you to re-run it once that's done.
+The first build normally takes about **10 minutes** because it compiles the
+Panako fingerprinting engine. Lots of terminal output during this build is
+normal. Later starts usually take only a few seconds. Setup is complete when
+the terminal says:
 
-### Manual (any OS)
-
-Requirements:
-[Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker
-Engine + Compose on Linux).
-
-```bash
-git clone <this-repo>
-cd <repo>/mixid_app
-docker compose up -d --build     # first build ~10 min (compiles Panako)
+```text
+SCRipper Suite is running:  http://localhost:8080
 ```
 
-Open **http://localhost:8080**.
+The containers keep running after the setup window closes.
+
+### Your first five minutes
+
+- To test **SCRipper**, paste a public SoundCloud or YouTube track URL,
+  select **Check URLs**, choose a destination folder, and select
+  **Download**.
+- To test **MixID**, first add or re-index a music folder. Once fingerprinting
+  finishes, drop in a recorded mix and wait for its tracklist.
+- Leave cookies alone at first. Public tracks work without them; the
+  **Cookies** section is for private, age-restricted, or account-only tracks.
+
+### Starting and stopping later
+
+Double-click `setup.bat` whenever you want to start or update the app. It is
+safe to run repeatedly. If the browser does not open automatically, visit
+[http://localhost:8080](http://localhost:8080).
+
+To stop the app, open PowerShell in `mixid_app` and run:
+
+```powershell
+docker compose stop
+```
+
+Your music, fingerprints, and past scans are preserved when the app is
+stopped or rebuilt.
+
+### If first start does not finish
+
+- **Docker was just installed:** restart Windows, open Docker Desktop, wait
+  until its engine is running, and run `setup.bat` again.
+- **The containers started but no page appeared:** wait another minute, then
+  open [http://localhost:8080](http://localhost:8080) yourself.
+- **Port 8080 is already in use:** stop the other app using that port, then
+  run setup again.
+- **You need the error details:** run
+  `docker compose logs --tail 100 scripper` from `mixid_app`.
+
+### Manual setup (macOS, Linux, or Windows)
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or
+Docker Engine with Compose, then run:
+
+```bash
+git clone https://github.com/PragmaticsGhost/SCRipper.git
+cd SCRipper/mixid_app
+docker compose up -d --build
+```
+
+Open [http://localhost:8080](http://localhost:8080). The first build normally
+takes about 10 minutes.
 
 ### Where your music lives
 
@@ -157,10 +202,26 @@ mini-waveform and a play button.
 ### Identify a mix
 
 1. Drop a recorded mix (wav/mp3/m4a/flac) into the Identify panel.
-2. While it scans, a neon waveform of the mix fills in with a moving scan
-   head.
-3. Read the tracklist: timestamps, per-track tempo shift, and
-   `— track not identified —` markers where nothing in your library matched.
+2. Watch it work. The mix waveform fills in behind a moving scan head, the
+   progress line reports live detail such as
+   `Scanning 22:20 / 51:51 · 13 tracks found · 12s`, and each match streams
+   into a console below it (`♪ 4:15 — Luckey`) as it is recognised. A brief
+   **Building tracklist** stage runs once scanning finishes.
+3. Read the tracklist.
+
+A 50-minute mix typically finishes in well under a minute against a
+library of a few hundred tracks.
+
+Each identified row shows:
+
+- the **timestamp** where that track starts in your mix,
+- the **track title** from your library,
+- its musical **key** (for example `Dbm`), analysed once and cached,
+- its **BPM**. When you played the track pitched, this reads
+  `138 → 140 BPM · +1.4%` — the track's own BPM, the BPM it actually
+  played at in your mix, and the shift you used.
+
+Stretches that matched nothing appear as `— track not identified —`.
 
 From the tracklist you can:
 
@@ -184,6 +245,54 @@ Playing any track (library or mix slice) shows a bottom player bar with a
 clickable/scrubbable waveform, and a live neon 3D EQ visualizer that reacts
 to the audio — bass pumps the ridge, snares flash, height maps to a
 blue→pink gradient.
+
+---
+
+## Stopping and managing jobs
+
+Indexing, mix scans, and downloads can all be stopped while they run.
+
+- Every progress bar has a **Stop** button — **Stop indexing**, **Stop
+  scanning**, or **Stop downloading**. Stopping ends the underlying
+  fingerprinting or download process itself, not just the progress display.
+- An **Active jobs** panel appears in the MixID Library card whenever work is
+  queued or running. It lists each job with its type, status, progress, and
+  age, and offers a **Stop** button per job plus **Stop all**. Use it when a
+  job looks stuck, or to clear work left behind by a tab you closed earlier.
+- Starting a new mix scan automatically cancels any earlier scan still
+  running or queued, so an abandoned scan never blocks a new one.
+
+What happens to partial work:
+
+- **Scan stopped** — the uploaded mix is discarded and no tracklist is
+  produced. Only a scan that runs to completion saves a tracklist.
+- **Indexing stopped** — tracks already fingerprinted are kept. Run the index
+  again to finish the remainder.
+- **Downloads stopped** — finished files are kept, and the results panel
+  reports how many completed.
+
+---
+
+## Everyday troubleshooting
+
+- **"The fingerprint library has changed … re-index"** — MixID pauses
+  identification when an indexed file was edited, moved, or deleted outside
+  the app, because the fingerprint database no longer matches your files. Run
+  an index job on any library folder; it rebuilds safely and scanning works
+  again.
+- **A track was skipped as a duplicate** — indexing fingerprints each new
+  track against the library first. Edits and bootlegs that share long
+  stretches of audio with something you already own can be caught this way.
+  The index result names both files so you can judge whether it was a real
+  duplicate.
+- **A scan produced no tracklist** — it was stopped, or superseded by a newer
+  scan.
+- **Nothing was identified** — confirm the Library panel reports
+  fingerprinted tracks, then try lowering **Min matched segments per track**
+  to `1` for a more sensitive (and noisier) match.
+- **A key or BPM looks wrong** — both are detected automatically and cached.
+  A `TKEY` or `TBPM` tag on the file (for example written by Rekordbox) always
+  wins over detection, so tagging a stubborn track corrects it permanently.
 
 ---
 
