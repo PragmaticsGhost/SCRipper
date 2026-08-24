@@ -1,5 +1,5 @@
 # SCRipper suite — native audio dependencies are built in an isolated stage.
-ARG DEBIAN_IMAGE=debian:bullseye@sha256:6cb68b1be980a0e5b19be25582b34b5cf9cb466d52d08ab4354b79051f2cd298
+ARG DEBIAN_IMAGE=debian:bookworm@sha256:813017f3d62be4b5891a7acca6a01bdcd4b8513daa81b1ab99d3a50385b26931
 
 FROM ${DEBIAN_IMAGE} AS panako-builder
 
@@ -64,7 +64,7 @@ RUN chmod +x /usr/local/bin/panako && \
     chown -R scripper:scripper /home/scripper/.panako
 
 COPY requirements.lock /tmp/requirements.lock
-RUN pip3 install --no-cache-dir --require-hashes -r /tmp/requirements.lock && \
+RUN pip3 install --no-cache-dir --break-system-packages --require-hashes -r /tmp/requirements.lock && \
     rm /tmp/requirements.lock
 
 WORKDIR /app
@@ -108,7 +108,7 @@ CMD ["gunicorn", "--config", "gunicorn.conf.py", "app:app"]
 FROM runtime-base AS test
 USER root
 COPY requirements-dev.lock /tmp/requirements-dev.lock
-RUN pip3 install --no-cache-dir --require-hashes -r /tmp/requirements-dev.lock && \
+RUN pip3 install --no-cache-dir --break-system-packages --require-hashes -r /tmp/requirements-dev.lock && \
     rm /tmp/requirements-dev.lock
 COPY pyproject.toml .
 COPY browser_controller.py .

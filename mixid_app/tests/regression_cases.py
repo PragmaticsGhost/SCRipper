@@ -269,7 +269,7 @@ class BuildPinTests(unittest.TestCase):
         controller = ROOT.joinpath("browser-controller.Dockerfile").read_text(encoding="utf-8")
         compose = ROOT.joinpath("docker-compose.yml").read_text(encoding="utf-8")
 
-        self.assertRegex(dockerfile, r"ARG DEBIAN_IMAGE=debian:bullseye@sha256:[0-9a-f]{64}")
+        self.assertRegex(dockerfile, r"ARG DEBIAN_IMAGE=debian:bookworm@sha256:[0-9a-f]{64}")
         self.assertEqual(2, dockerfile.count("FROM ${DEBIAN_IMAGE}"))
         self.assertRegex(controller, r"FROM docker:[^\s]+@sha256:[0-9a-f]{64}")
         self.assertRegex(compose, r"LOGIN_BROWSER_IMAGE=jlesage/firefox@sha256:[0-9a-f]{64}")
@@ -304,6 +304,8 @@ class BuildPinTests(unittest.TestCase):
             script = ROOT.joinpath("scripts", script_name).read_text(encoding="utf-8")
             self.assertIn("docker compose config", script)
             self.assertIn("--target test", script)
+            # Stale extractors break downloads silently; the gate must report them.
+            self.assertIn("scripts/check_updates.py", script)
             self.assertIn("docker compose build", script)
 
     def test_python_runtime_dependencies_are_exactly_pinned(self):
@@ -339,6 +341,53 @@ class JobRetentionTests(unittest.TestCase):
         }
         prune_jobs(jobs, now=100, ttl_seconds=10, max_finished=100)
         self.assertEqual({"active"}, set(jobs))
+
+
+class DependencyFreshnessTests(unittest.TestCase):
+    """The update checker exists because a pinned yt-dlp silently went ten
+    months stale on an old Python and broke YouTube downloads."""
+
+    def _module(self):
+        import importlib.util
+
+        path = ROOT.joinpath("scripts", "check_updates.py")
+        spec = importlib.util.spec_from_file_location("check_updates", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_lock_parsing_ignores_hashes_and_comments(self):
+        module = self._module()
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp, "requirements.lock")
+            lock.write_text(
+                "\n".join(
+                    [
+                        "# comment",
+                        "yt-dlp==2026.8.19 --hash=sha256:" + "a" * 64,
+                        "",
+                        "Flask==3.1.3 --hash=sha256:" + "b" * 64,
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                {"yt-dlp": "2026.8.19", "flask": "3.1.3"},
+                module.parse_lock(str(lock)),
+            )
+
+    def test_version_ordering_detects_newer_releases(self):
+        module = self._module()
+        self.assertLess(module.parse_version("2025.10.14"), module.parse_version("2026.8.19"))
+        self.assertLess(module.parse_version("3.4.9"), module.parse_version("3.5.1"))
+
+    def test_python_requirement_gating(self):
+        module = self._module()
+        # The exact trap: a release needing a newer interpreter than the image.
+        unreachable = ">=%d.%d" % (sys.version_info[0], sys.version_info[1] + 1)
+        self.assertFalse(module.python_ok(unreachable))
+        self.assertTrue(module.python_ok(">=3.8"))
+        self.assertTrue(module.python_ok(None))
 
 
 class JobCancellationTests(unittest.TestCase):

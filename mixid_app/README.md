@@ -354,9 +354,35 @@ sh scripts/ci.sh
 
 The gate validates Compose configuration, checks both Dockerfiles, builds and
 runs the dedicated test image (Ruff plus the regression and native-audio smoke
-tests), and then builds the deployable images. The deployable image is
+tests), reports dependency freshness, and then builds the deployable images. The deployable image is
 multi-stage: compilers, Git, headers, and the full JDK stay in the native build
 stage and are not shipped in production.
+
+### Keeping downloads working
+
+Site extractors go stale quickly: YouTube changes its player and an old
+`yt-dlp` starts failing with "page needs to be reloaded" errors or HTTP 403 on
+download, while SoundCloud keeps working. The quality gate therefore runs a
+dependency freshness report:
+
+```bash
+docker run --rm scripper-suite-test python3 scripts/check_updates.py
+```
+
+It compares every pin in `requirements.lock` against PyPI and prints two kinds
+of finding:
+
+- **Updates available** — a newer release exists and this image can install it.
+  Regenerate `requirements.lock` and rebuild.
+- **Blocked by Python version** — a newer release exists but needs a newer
+  interpreter than the image ships, so pip silently keeps the old pin. This is
+  the failure mode that once left `yt-dlp` ten months out of date on Debian
+  bullseye (Python 3.9) and broke YouTube downloads. Fixing it means raising
+  the base image, not just editing the pin.
+
+The check is informational and never fails the gate; pass `--strict` to make
+it exit non-zero when updates are pending. The runtime currently targets
+Debian bookworm (Python 3.11).
 
 The application is organized around small service modules: configuration and
 application state, bounded job queues, metadata storage, downloads, route
