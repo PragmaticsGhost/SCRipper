@@ -223,6 +223,14 @@ Each identified row shows:
 
 Stretches that matched nothing appear as `— track not identified —`.
 
+A track played only briefly — or tucked under a tight blend — is sometimes
+recognised in just one short window. These are shown with a **weak** tag
+(and marked `(weak)` in the copied tracklist) so you know they rest on
+thinner evidence than the rest. Two kinds of thin match are dropped as
+artifacts rather than shown: near-silent noise, and a re-match of a track
+that played moments earlier (usually its audio bleeding through a blend —
+a vocal riding the next track's instrumental — not a real second play).
+
 From the tracklist you can:
 
 - **▶ Play any slice** — plays the mix from that timestamp, with a marker

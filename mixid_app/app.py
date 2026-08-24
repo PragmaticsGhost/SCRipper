@@ -98,6 +98,15 @@ PANAKO_LMDB_DIR = os.path.join(DB_DIR, "panako_db")
 STRATEGY = "panako"
 AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".flac", ".ogg", ".aiff", ".aif")
 UNIDENTIFIED_GAP_S = 40  # a hole this long in the tracklist = missed track
+# A match seen in only one ~25s window is uncertain, so it is kept but flagged
+# "weak" rather than trusted outright. Fingerprint score can't tell a real
+# brief match from a spurious one (a genuine track can score below a false
+# one), so it is used only to drop near-zero noise. The other thing dropped is
+# a re-match of a track that played moments earlier: that is usually its audio
+# bleeding through a blend (e.g. a vocal riding the next track's instrumental),
+# not a genuine second play.
+WEAK_MATCH_NOISE_FLOOR = 20
+RECENT_REPLAY_S = 60
 DOWNLOAD_WORKERS = 3
 JOB_RETENTION_SECONDS = 24 * 60 * 60
 JOB_MAX_FINISHED = 100
@@ -846,6 +855,7 @@ def collapse_matches(matches, min_segments=2, duration=None, analyze_metadata=Fa
             current["end"] = m["query_stop"]
             current["segments"] += 1
             current["time_factors"].append(m["time_factor"])
+            current["scores"].append(m.get("score"))
             current["match_stop"] = max(current["match_stop"], m.get("match_stop") or 0)
         else:
             if current:
@@ -857,15 +867,28 @@ def collapse_matches(matches, min_segments=2, duration=None, analyze_metadata=Fa
                 "end": m["query_stop"],
                 "segments": 1,
                 "time_factors": [m["time_factor"]],
+                "scores": [m.get("score")],
                 "match_stop": m.get("match_stop") or 0,
             }
     if current:
         entries.append(current)
 
     accepted = []
+    last_end_by_ref = {}
     for e in entries:
+        scores = [s for s in e["scores"] if s is not None]
+        best_score = max(scores) if scores else 0
+        weak = False
         if e["segments"] < min_segments:
-            continue
+            # A single-window match is uncertain: keep it, but flag it weak so
+            # its lower confidence is visible. Drop only clear artifacts —
+            # near-zero noise, or a re-match of a track that played moments
+            # earlier (bleed-through of the previous track, not a real replay).
+            prior_end = last_end_by_ref.get(e["reference"])
+            just_played = prior_end is not None and e["start"] - prior_end < RECENT_REPLAY_S
+            if best_score < WEAK_MATCH_NOISE_FLOOR or just_played:
+                continue
+            weak = True
         avg_tf = sum(e["time_factors"]) / len(e["time_factors"])
         # Expected continuation: how far into the mix this track would
         # plausibly still be playing, given where matching stopped within
@@ -900,9 +923,12 @@ def collapse_matches(matches, min_segments=2, duration=None, analyze_metadata=Fa
                 "played_bpm": played,
                 "key": track_key(e["reference"], analyze=analyze_metadata),
                 "segments": e["segments"],
+                "score": round(best_score),
+                "weak": weak,
                 "unidentified": False,
             }
         )
+        last_end_by_ref[e["reference"]] = max(last_end_by_ref.get(e["reference"], 0.0), e["end"])
 
     # Insert placeholders only for gaps NOT covered by the previous
     # track's expected continuation.

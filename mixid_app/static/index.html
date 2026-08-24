@@ -130,6 +130,10 @@
     max-height: max(160px, calc(100vh - 660px)); overflow-y: auto; padding-right: 4px; }
   .keychip { font-size: .75rem; padding: 1px 8px; border-radius: 20px; white-space: nowrap;
     color: #c9a7ff; border: 1px solid #3d2a5e; }
+  .weakchip { font-size: .72rem; padding: 1px 8px; border-radius: 20px; white-space: nowrap;
+    color: var(--warn); border: 1px dashed #5e4a1c; cursor: help; }
+  .tl-row.weak { background: rgba(251,191,36,.05); }
+  .tl-row.weak .title { color: #d9cbb0; }
   .tl-row {
     display: flex; align-items: center; gap: 12px;
     padding: 7px 12px; border-radius: 8px; background: var(--panel-2);
@@ -1460,7 +1464,7 @@ function rebuildTracklistText() {
   lastTracklistText = currentTracklist.map(t => {
     const name = t.unidentified
       ? (t.manual_title ? `${t.manual_title} *` : "[not identified]")
-      : t.title;
+      : (t.weak ? `${t.title} (weak)` : t.title);
     return `${fmtTs(t.start)} - ${name}`;
   }).join("\n") + "\n";
 }
@@ -1563,7 +1567,7 @@ function renderTracklist(tl) {
     } else {
       identified++;
       const row = document.createElement("div");
-      row.className = "tl-row";
+      row.className = t.weak ? "tl-row weak" : "tl-row";
       let tempo = "";
       const shifted = Math.abs(t.tempo_pct) > 0.5;
       const cls = t.tempo_pct > 0 ? "up" : "down";
@@ -1577,6 +1581,11 @@ function renderTracklist(tl) {
         tempo = `<span class="tempo ${cls}">${pct}</span>`;
       }
       if (t.key) tempo = `<span class="keychip">${esc(t.key)}</span>` + tempo;
+      if (t.weak) {
+        const tip = `Weak match: recognised in a single ~25s window`
+          + (t.score ? ` (score ${t.score})` : "") + ". Lower confidence.";
+        tempo += `<span class="weakchip" title="${tip}">weak</span>`;
+      }
       const pb = slicePlayBtn(t);
       if (pb) row.appendChild(pb);
       const rest = document.createElement("span");
